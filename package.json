@@ -1,0 +1,17 @@
+{
+  "name": "facilitator-platform",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev:web": "pnpm --filter ./apps/web dev",
+    "dev:api": "pnpm --filter ./packages/api dev",
+    "dev": "pnpm run dev:web & pnpm run dev:api"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.12.1",
+  "devDependencies": {
+    "@types/cors": "^2.8.19"
+  }
+}
