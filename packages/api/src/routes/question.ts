@@ -1,62 +1,40 @@
 // packages/api/src/routes/question.ts
-import { Router } from "express";
-import { Types } from "mongoose";
-import DiscussionQuestion from "../models/discussionQuestion"; // <-- check path
+import { Router, Response } from "express";
+import * as RequireAuthMod from "../middleware/requireAuth";
+const requireAuth =
+  (RequireAuthMod as any).default ?? (RequireAuthMod as any);
+
+import DiscussionQuestion from "../models/discussionQuestion";
 
 const router = Router();
 
 /**
- * PATCH /api/questions/:id
- * Generic partial update (e.g. { promptText, order, isActive })
+ * PATCH /api/questions/:id/activate
+ * body: { isActive?: boolean }
+ * If body.isActive omitted, defaults to true (activate).
  */
-router.patch("/:id", async (req, res) => {
+router.patch("/:id/activate", requireAuth, async (req, res: Response) => {
   try {
     const { id } = req.params;
-    if (!Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: "Invalid question id" });
-    }
+    const isActive =
+      typeof req.body?.isActive === "boolean" ? req.body.isActive : true;
 
     const updated = await DiscussionQuestion.findByIdAndUpdate(
       id,
-      { $set: req.body },
-      { new: true, runValidators: true }
+      { $set: { isActive } },
+      { new: true }
     ).lean();
 
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
-  } catch (e: any) {
-    console.error("Update question error:", e);
-    res.status(500).json({ error: "Internal" });
-  }
-});
-
-/**
- * PATCH /api/questions/:id/activate
- * Convenience endpoint to toggle isActive flag
- */
-router.patch("/:id/activate", async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: "Invalid question id" });
-    }
-
-    const q = await DiscussionQuestion.findById(id);
-    if (!q) return res.status(404).json({ error: "Not found" });
-
-    q.isActive = !q.isActive;
-    await q.save();
-
-    // If you emit socket event here, import your io getter:
-    // getIO().to(q.sessionId.toString()).emit("question-activated", q);
-
-    res.json(q.toObject());
-  } catch (e: any) {
-    console.error("Activate question error:", e);
+  } catch (err) {
+    console.error("Activate question error:", err);
     res.status(500).json({ error: "Internal" });
   }
 });
 
 export default router;
+
+
 
 
