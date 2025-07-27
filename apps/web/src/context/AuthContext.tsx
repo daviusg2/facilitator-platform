@@ -47,6 +47,31 @@ const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID as string;
 const REDIRECT_URI = import.meta.env.VITE_COGNITO_REDIRECT_URI as string;
 const LOGOUT_URI = import.meta.env.VITE_COGNITO_LOGOUT_URI as string;
 
+function buildAuthorizeUrl() {
+  if (!COGNITO_DOMAIN || !CLIENT_ID || !REDIRECT_URI) {
+    console.error("Cognito env vars missing", { COGNITO_DOMAIN, CLIENT_ID, REDIRECT_URI });
+    alert("Auth config missing. Check apps/web/.env");
+    return "/";
+  }
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    response_type: "token",               // implicit for MVP
+    scope: "openid email profile aws.cognito.signin.user.admin",
+    redirect_uri: REDIRECT_URI,
+  });
+  return `${COGNITO_DOMAIN}/oauth2/authorize?${params.toString()}`;
+}
+
+function buildLogoutUrl() {
+  if (!COGNITO_DOMAIN || !CLIENT_ID || !LOGOUT_URI) return "/";
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    logout_uri: LOGOUT_URI,
+  });
+  return `${COGNITO_DOMAIN}/logout?${params.toString()}`;
+}
+
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [idToken, setIdToken] = useState<string | null>(() => localStorage.getItem("id_token"));
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -85,25 +110,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [idToken]);
 
   const signIn = () => {
-    const url =
-      `${COGNITO_DOMAIN}/oauth2/authorize` +
-      `?client_id=${encodeURIComponent(CLIENT_ID)}` +
-      `&response_type=token` +
-      `&scope=${encodeURIComponent("openid email profile aws.cognito.signin.user.admin")}` +
-      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
-    window.location.href = url;
-  };
+  window.location.href = buildAuthorizeUrl();
+};
 
   const signOut = () => {
-    localStorage.removeItem("id_token");
-    setIdToken(null);
-    setUser(null);
-    const url =
-      `${COGNITO_DOMAIN}/logout` +
-      `?client_id=${encodeURIComponent(CLIENT_ID)}` +
-      `&logout_uri=${encodeURIComponent(LOGOUT_URI)}`;
-    window.location.href = url;
-  };
+  // clear local tokens then go to Hosted UI logout
+  localStorage.removeItem("id_token");
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("expires_at");
+  window.location.href = buildLogoutUrl();
+};
 
   const value = useMemo<AuthContextShape>(
     () => ({

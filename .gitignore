@@ -1,7 +1,5 @@
-# real secrets
-.env
-packages/**/.env
-
-# allow templates
-!.env.example
-!packages/**/.env.example
+# env files
+*.env
+*.env.local
+apps/web/.env
+packages/api/.env

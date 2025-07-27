@@ -18,8 +18,10 @@ export default function DashboardPage() {
   const [newTitle, setNewTitle] = useState("");
 
   useEffect(() => {
-    listSessions(false).then(setSessions).catch(console.error);
-  }, []);
+  listSessions()
+    .then(setSessions)
+    .catch((e) => console.error("listSessions error", e));
+}, []);
 
   async function handleCreate() {
     if (!newTitle.trim()) return;

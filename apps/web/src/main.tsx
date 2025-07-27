@@ -10,6 +10,7 @@ import JoinPage from "./pages/JoinPage";
 import AuthCallbackPage from "./pages/AuthCallbackPage";
 import { AuthProvider } from "./context/AuthContext";
 
+
 const router = createBrowserRouter([
   {
     element: <Layout />,

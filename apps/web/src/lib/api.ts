@@ -1,27 +1,23 @@
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const API_BASE = "http://localhost:4000";
+
 
 function getIdToken(): string | null {
   return localStorage.getItem("id_token");
 }
 
-async function fetchJson(path: string, opts: RequestInit = {}) {
-  const token = getIdToken();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(opts.headers as Record<string, string>),
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  } else {
-    // Dev hint: remove after you confirm
-    console.warn("API call without id_token:", path);
-  }
-
-  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
-
+async function fetchJson(path: string, options: RequestInit = {}) {
+  const idToken = localStorage.getItem("id_token") || "";
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: idToken ? `Bearer ${idToken}` : "",
+      ...(options.headers || {}),
+    },
+  });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${opts.method || "GET"} ${path} failed (${res.status}): ${text}`);
+    const body = await res.text();
+    throw new Error(`${options.method ?? "GET"} ${path} failed (${res.status}): ${body}`);
   }
   return res.json();
 }
@@ -52,9 +48,8 @@ export interface Response {
   createdAt: string;
 }
 
-export function listSessions(mine = false) {
-  const q = mine ? "?mine=true" : "";
-  return fetchJson(`/api/sessions${q}`) as Promise<Session[]>;
+export async function listSessions() {
+  return fetchJson(`/api/sessions`);
 }
 
 export function createSession(title: string) {
