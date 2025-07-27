@@ -5,6 +5,8 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import mongoose from "mongoose";
+import { createServer } from "http";
+import { initIO } from "./socket";
 import { requireAuth } from "./middleware/requireAuth"; // named export
 import { errorHandler } from "./middleware/errorHandler";
 
@@ -12,23 +14,19 @@ import meRouter from "./routes/me";
 import sessionRouter from "./routes/session";           // default export
 import questionRouter from "./routes/question";         // default export
 import { responseRouter } from "./routes/response";         // default export
-import { initIO } from "./socket";
 
 const PORT = Number(process.env.PORT || 4000);
 const MONGODB_URI = process.env.MONGODB_URI!;
 
 async function bootstrap() {
   const app = express();
-  app.use(cors());
+  app.use(cors({ origin: "*"}));
   app.use(express.json());
 
   // Health first — include DB state so we can observe readiness
-  app.get("/health", (_req, res) => {
-    res.json({
-      status: "ok",
-      dbState: mongoose.connection.readyState, // 0=disconnected 1=connected 2=connecting 3=disconnecting
-    });
-  });
+ app.get("/health", (_req, res) =>
+  res.json({ status: "ok", db: mongoose.connection.readyState })
+);
 
   // 1) Connect DB BEFORE attaching middleware that hits DB
   try {
@@ -52,15 +50,19 @@ async function bootstrap() {
   app.use(errorHandler);
 
   // 5) HTTP + sockets
-  const server = http.createServer(app);
-  initIO(server);
+  const httpServer = createServer(app);
+initIO(httpServer);
 
-  server.listen(PORT, () => {
+const PORT = process.env.PORT ?? 4000;
+
+async function bootstrap() {
+  await mongoose.connect(process.env.MONGODB_URI!);
+  console.log("✅ MongoDB connected");
+  httpServer.listen(PORT, () => {
     console.log(`🚀 API + sockets on http://localhost:${PORT}`);
   });
 }
 
-bootstrap().catch((e) => {
-  console.error("❌ Failed to start API:", e);
-  process.exit(1);
-});
+bootstrap().catch((err) => {
+  console.error("❌ Failed to start API:", err);
+})}

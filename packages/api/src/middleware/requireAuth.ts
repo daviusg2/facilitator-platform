@@ -1,55 +1,40 @@
-import { Request, Response, NextFunction } from "express";
+// packages/api/src/middleware/requireAuth.ts
+import type { NextFunction, Response } from "express";
+import type { Request } from "express-serve-static-core";
 import { verifyIdToken } from "../auth/verifyCognito";
-import { getOrCreateUser } from "../util/getOrCreateUser";
 
-declare global {
-  namespace Express {
-    interface Request {
-      auth?: {
-        sub: string;
-        email?: string;
-        role?: string;
-        orgId: string;
-        userId: string; // <-- ObjectId string
-        raw?: any;
-      };
-    }
-  }
+export interface AuthedRequest extends Request {
+  user?: any;
 }
 
-export async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const authz = req.header("Authorization");
-  if (!authz?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Missing token" });
-  }
-  const token = authz.slice(7).trim();
+const DISABLE_AUTH = process.env.DISABLE_AUTH === "true";
 
+export default async function requireAuth(
+  req: AuthedRequest,
+  res: Response,
+  next: NextFunction
+) {
   try {
-    const claims = await verifyIdToken(token);
+    if (DISABLE_AUTH) {
+      req.user = {
+        sub: "dev-user",
+        email: "dev@example.com",
+        name: "Dev User",
+        "custom:orgId":
+          process.env.DEV_ORG_ID ?? "6865e5b9c6e9cd5ce6d0686e",
+      };
+      return next();
+    }
 
-    // find/create user and org
-    const u = await getOrCreateUser({
-      sub: claims.sub!,
-      email: claims.email,
-      name: claims.name,
-      role: claims["custom:role"],
-      claimOrgId: claims["custom:orgId"],
-    });
+    const authz = req.headers.authorization || "";
+    const token = authz.startsWith("Bearer ") ? authz.slice(7) : "";
+    if (!token) return res.status(401).json({ error: "Missing token" });
 
-    req.auth = {
-      sub: claims.sub!,
-      email: claims.email,
-      role: u.role,
-      orgId: u.orgId.toString(),
-      userId: u._id.toString(),
-      raw: claims,
-    };
-
-    next();
-  } catch (e: any) {
-    console.error("Auth verify error:", e.message);
-    res.status(401).json({ error: "Invalid or expired token" });
+    const { payload } = await verifyIdToken(token);
+    req.user = payload;
+    return next();
+  } catch (err: any) {
+    console.error("Auth verify error:", err?.message || err);
+    return res.status(401).json({ error: "Invalid or expired token" });
   }
 }
-
-
