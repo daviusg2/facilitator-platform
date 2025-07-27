@@ -1,5 +1,5 @@
-node_modules
-.env
-*.log
-dist
-pnpm-locl.yaml
+# env files
+*.env
+*.env.local
+apps/web/.env
+packages/api/.env

@@ -43,6 +43,7 @@ export function getTokens() {
   return raw ? JSON.parse(raw) : null;
 }
 
+
 export function decodeJwt(token: string) {
   const [, payload] = token.split(".");
   const b64 = payload.replace(/-/g, "+").replace(/_/g, "/");
