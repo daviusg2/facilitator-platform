@@ -1,48 +1,62 @@
+// packages/api/src/routes/question.ts
 import { Router } from "express";
-import { DiscussionQuestionModel } from "../models/discussionQuestion";
+import { Types } from "mongoose";
+import DiscussionQuestion from "../models/discussionQuestion"; // <-- check path
 
-export const questionRouter = Router({ mergeParams: true });
+const router = Router();
 
-
-/* ─── List questions for a session (NEW) ───────────────────── */
-questionRouter.get("/", async (req, res, next) => {
+/**
+ * PATCH /api/questions/:id
+ * Generic partial update (e.g. { promptText, order, isActive })
+ */
+router.patch("/:id", async (req, res) => {
   try {
-    const { sessionId } = req.params;
-    const qs = await DiscussionQuestionModel.find({ sessionId }).sort({ order: 1 });
-    res.json(qs);
-  } catch (err) {
-    next(err);
+    const { id } = req.params;
+    if (!Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: "Invalid question id" });
+    }
+
+    const updated = await DiscussionQuestion.findByIdAndUpdate(
+      id,
+      { $set: req.body },
+      { new: true, runValidators: true }
+    ).lean();
+
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
+  } catch (e: any) {
+    console.error("Update question error:", e);
+    res.status(500).json({ error: "Internal" });
   }
 });
-/*──────────────────────────────────────────────────────────────
-  POST /api/sessions/:sessionId/questions
-──────────────────────────────────────────────────────────────*/
-questionRouter.post("/", async (req, res, next) => {
+
+/**
+ * PATCH /api/questions/:id/activate
+ * Convenience endpoint to toggle isActive flag
+ */
+router.patch("/:id/activate", async (req, res) => {
   try {
-    const { sessionId } = req.params;                // comes from mergeParams
-    const doc = await DiscussionQuestionModel.create({
-      ...req.body,
-      sessionId,
-    });
-    return res.status(201).json(doc);
-  } catch (err) {
-    next(err);
+    const { id } = req.params;
+    if (!Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: "Invalid question id" });
+    }
+
+    const q = await DiscussionQuestion.findById(id);
+    if (!q) return res.status(404).json({ error: "Not found" });
+
+    q.isActive = !q.isActive;
+    await q.save();
+
+    // If you emit socket event here, import your io getter:
+    // getIO().to(q.sessionId.toString()).emit("question-activated", q);
+
+    res.json(q.toObject());
+  } catch (e: any) {
+    console.error("Activate question error:", e);
+    res.status(500).json({ error: "Internal" });
   }
 });
 
-/*──────────────────────────────────────────────────────────────
-  PATCH /api/questions/:id/activate
-──────────────────────────────────────────────────────────────*/
-questionRouter.patch("/:id/activate", async (req, res, next) => {
-  try {
-    const doc = await DiscussionQuestionModel.findByIdAndUpdate(
-      req.params.id,
-      { isActive: req.body.isActive },
-      { new: true }
-    );
-    return res.json(doc);
-  } catch (err) {
-    next(err);
-  }
-});
+export default router;
+
 

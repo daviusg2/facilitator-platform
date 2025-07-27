@@ -1,5 +1,7 @@
-node_modules
+# real secrets
 .env
-*.log
-dist
-pnpm-locl.yaml
+packages/**/.env
+
+# allow templates
+!.env.example
+!packages/**/.env.example

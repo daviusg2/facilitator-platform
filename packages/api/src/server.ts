@@ -1,67 +1,66 @@
-// packages/api/src/server.ts
-//----------------------------------------------------------------
 import dotenv from "dotenv";
 dotenv.config();
+
 import express from "express";
+import http from "http";
 import cors from "cors";
 import mongoose from "mongoose";
-import http from "http";
+import { requireAuth } from "./middleware/requireAuth"; // named export
+import { errorHandler } from "./middleware/errorHandler";
 
-import { requireAuth } from "./middleware/requireAuth";
+import meRouter from "./routes/me";
+import sessionRouter from "./routes/session";           // default export
+import questionRouter from "./routes/question";         // default export
+import { responseRouter } from "./routes/response";         // default export
 import { initIO } from "./socket";
-import { orgRouter } from "./routes/organisation";
-import { router } from "./routes/session";
-import { questionRouter } from "./routes/question";
-import { responseRouter } from "./routes/response";
-import { questionActionsRouter } from "./routes/questionActions";
 
-dotenv.config();
-const PORT        = Number(process.env.PORT) || 4000;
-const MONGODB_URI = process.env.MONGODB_URI || "";
+const PORT = Number(process.env.PORT || 4000);
+const MONGODB_URI = process.env.MONGODB_URI!;
 
-//----------------------------------------------------------------
 async function bootstrap() {
-  // 1️⃣  DB first
-  await mongoose.connect(MONGODB_URI);
-  console.log("✅ MongoDB connected");
-
-  // 2️⃣  Express app
   const app = express();
   app.use(cors());
   app.use(express.json());
 
-  // 3️⃣  Routers (order doesn’t matter here)
+  // Health first — include DB state so we can observe readiness
+  app.get("/health", (_req, res) => {
+    res.json({
+      status: "ok",
+      dbState: mongoose.connection.readyState, // 0=disconnected 1=connected 2=connecting 3=disconnecting
+    });
+  });
+
+  // 1) Connect DB BEFORE attaching middleware that hits DB
+  try {
+    await mongoose.connect(MONGODB_URI);
+    console.log("✅ MongoDB connected");
+  } catch (err) {
+    console.error("❌ MongoDB connection failed:", (err as any).message);
+    process.exit(1);
+  }
+
+  // 2) Now it is safe to use requireAuth (it does User.findOne)
   app.use(requireAuth);
-  app.use("/api/orgs", orgRouter);
-  app.use("/api/sessions", router);
-  app.use("/api/sessions/:sessionId/questions", questionRouter);
-  app.use("/api/questions", questionActionsRouter);
-  app.use("/api/questions", responseRouter);
-  // 4️⃣  Health-check (optional for curl sanity)
-  app.get("/health", (_, res) =>
-    res.json({ status: "ok", db: mongoose.connection.readyState })
-  );
 
-  // 5️⃣  ----  Socket.IO  ----                     (‼️ order matters)
-  // * create ONE HTTP server that wraps Express
-  const httpServer = http.createServer(app);
-  // * attach Socket.IO exactly once
-  initIO(httpServer);
+  // 3) Routers
+  app.use("/api/me", meRouter);
+  app.use("/api/sessions", sessionRouter);
+  app.use("/api/questions", questionRouter);
+  app.use("/api/responses", responseRouter);
 
-  // 6️⃣  Listen
-  httpServer.listen(PORT, () =>
-    console.log(`🚀 API + sockets on http://localhost:${PORT}`)
-  );
+  // 4) Error handler last
+  app.use(errorHandler);
+
+  // 5) HTTP + sockets
+  const server = http.createServer(app);
+  initIO(server);
+
+  server.listen(PORT, () => {
+    console.log(`🚀 API + sockets on http://localhost:${PORT}`);
+  });
 }
 
-bootstrap().catch((err) => {
-  console.error("❌ Failed to start API:", err);
+bootstrap().catch((e) => {
+  console.error("❌ Failed to start API:", e);
   process.exit(1);
 });
-
-console.log("AUTH DEBUG ENV", {
-  audience: process.env.COGNITO_AUDIENCE,
-  pool: process.env.COGNITO_USER_POOL_ID,
-  region: process.env.COGNITO_REGION
-});
-

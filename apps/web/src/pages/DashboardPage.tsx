@@ -1,57 +1,69 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { listSessions, createSession } from "../lib/api";
-import { useOrgStore } from "../store/useOrgStore";
+import { useAuth } from "../context/AuthContext";
+
+interface Session {
+  _id: string;
+  title: string;
+  status: string;
+  moduleType: string;
+  orgId: string;
+  facilitatorId: string;
+  createdAt: string;
+}
 
 export default function DashboardPage() {
-  const navigate = useNavigate();
-  const { orgId } = useOrgStore();
-  const [sessions, setSessions] = useState<any[]>([]);
-  const [title, setTitle] = useState("");
+  const { email, orgId } = useAuth(); // for display only
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [newTitle, setNewTitle] = useState("");
 
-  // fetch on mount
   useEffect(() => {
-    listSessions(orgId).then(setSessions).catch(console.error);
-  }, [orgId]);
+    listSessions(false).then(setSessions).catch(console.error);
+  }, []);
 
-  const handleCreate = async () => {
-    if (!title.trim()) return;
-    const newSession = await createSession(title);
-    setSessions([newSession, ...sessions]);
-    setTitle("");
-  };
+  async function handleCreate() {
+    if (!newTitle.trim()) return;
+    const created = await createSession(newTitle.trim());
+    setSessions((prev) => [created, ...prev]);
+    setNewTitle("");
+  }
 
   return (
-    <div className="max-w-3xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-4">Sessions</h1>
+    <div className="p-6 max-w-3xl mx-auto">
+      <h1 className="text-2xl font-bold mb-2">Facilitator Dashboard</h1>
+      <p className="text-sm text-gray-600 mb-6">
+        Signed in as <span className="font-medium">{email}</span>
+        {orgId ? ` — Org: ${orgId}` : null}
+      </p>
 
-      {/* New session form */}
       <div className="flex gap-2 mb-6">
         <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
           placeholder="Session title"
           className="flex-1 border rounded px-3 py-2"
         />
-        <button
-          onClick={handleCreate}
-          className="bg-blue-600 text-white px-4 py-2 rounded"
-        >
-          Create
+        <button onClick={handleCreate} className="bg-blue-600 text-white px-4 py-2 rounded">
+          Create session
         </button>
       </div>
 
-      {/* Session list */}
       <ul className="space-y-2">
         {sessions.map((s) => (
-          <li
-            key={s._id}
-            className="border rounded p-3 hover:bg-gray-50 cursor-pointer"
-            onClick={() => navigate(`/session/${s._id}`)}
-          >
-            <div className="font-medium">{s.title}</div>
-            <div className="text-sm text-gray-500">
-              {new Date(s.createdAt).toLocaleString()}
+          <li key={s._id} className="border rounded p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-medium">{s.title}</div>
+                <div className="text-xs text-gray-500">
+                  {s.moduleType} • {s.status} • {new Date(s.createdAt).toLocaleString()}
+                </div>
+              </div>
+              <a
+                href={`/session/${s._id}`}
+                className="text-sm px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
+              >
+                Open
+              </a>
             </div>
           </li>
         ))}
@@ -59,3 +71,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+

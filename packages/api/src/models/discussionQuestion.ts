@@ -18,7 +18,6 @@ const schema = new Schema<DiscussionQuestion>(
 );
 
 // ⬇️ If it already exists, reuse it; otherwise create it
-export const DiscussionQuestionModel =
-  models.DiscussionQuestion ||
-  model<DiscussionQuestion>("DiscussionQuestion", schema);
+export default models.DiscussionQuestion || model("DiscussionQuestion", schema);
+
 

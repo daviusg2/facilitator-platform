@@ -1,54 +1,40 @@
-// apps/web/src/lib/api.ts
-// Centralised API helpers for the Facilitator Platform web app.
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
-import { getTokens } from "./auth";
-
-// ------------------------------------------------------------------
-// Config
-// ------------------------------------------------------------------
-
-// TODO: move to env var when deploying (VITE_API_URL)
-export const API = "http://localhost:4000";
-
-// Attach Authorization header when logged in
-function authHeader(): Record<string, string> {
-  const t = getTokens();
-  return t?.id_token ? { Authorization: `Bearer ${t.id_token}` } : {};
+function getIdToken(): string | null {
+  return localStorage.getItem("id_token");
 }
 
-// Generic fetch wrapper (JSON in / JSON out)
-async function fetchJson<T = any>(
-  url: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-      ...authHeader(),
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `${options.method || "GET"} ${url} failed (${res.status}): ${text}`
-    );
+async function fetchJson(path: string, opts: RequestInit = {}) {
+  const token = getIdToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(opts.headers as Record<string, string>),
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  } else {
+    // Dev hint: remove after you confirm
+    console.warn("API call without id_token:", path);
   }
-  return res.json() as Promise<T>;
+
+  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${opts.method || "GET"} ${path} failed (${res.status}): ${text}`);
+  }
+  return res.json();
 }
 
-// ------------------------------------------------------------------
-// Types (minimal; extend as needed)
-// ------------------------------------------------------------------
 export interface Session {
   _id: string;
+  title: string;
+  status: string;
+  moduleType: string;
   orgId: string;
   facilitatorId: string;
-  title: string;
-  moduleType: string;
-  createdAt?: string;
-  updatedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Question {
@@ -57,92 +43,52 @@ export interface Question {
   order: number;
   promptText: string;
   isActive: boolean;
-  createdAt?: string;
-  updatedAt?: string;
 }
 
-export interface ResponseDoc {
+export interface Response {
   _id: string;
   questionId: string;
-  participantId: string;
   bodyText: string;
   createdAt: string;
 }
 
-// ------------------------------------------------------------------
-// Sessions
-// ------------------------------------------------------------------
-
-export async function listSessions(orgId: string): Promise<Session[]> {
-  return fetchJson<Session[]>(`${API}/api/sessions?orgId=${orgId}`);
+export function listSessions(mine = false) {
+  const q = mine ? "?mine=true" : "";
+  return fetchJson(`/api/sessions${q}`) as Promise<Session[]>;
 }
 
-export async function createSession(title: string): Promise<Session> {
-  return fetchJson<Session>(`${API}/api/sessions`, {
+export function createSession(title: string) {
+  return fetchJson(`/api/sessions`, {
     method: "POST",
     body: JSON.stringify({ title }),
-  });
+  }) as Promise<Session>;
 }
 
-
-// ------------------------------------------------------------------
-// Questions
-// ------------------------------------------------------------------
-
-export async function listQuestions(sessionId: string): Promise<Question[]> {
-  return fetchJson<Question[]>(`${API}/api/sessions/${sessionId}/questions`);
+export function listQuestions(sessionId: string) {
+  return fetchJson(`/api/sessions/${sessionId}/questions`) as Promise<Question[]>;
 }
 
-export async function addQuestion(
-  sessionId: string,
-  payload: { order: number; promptText: string }
-): Promise<Question> {
-  return fetchJson<Question>(`${API}/api/sessions/${sessionId}/questions`, {
+export function addQuestion(sessionId: string, data: { order: number; promptText: string }) {
+  return fetchJson(`/api/sessions/${sessionId}/questions`, {
     method: "POST",
-    body: JSON.stringify(payload),
-  });
+    body: JSON.stringify(data),
+  }) as Promise<Question>;
 }
 
-/**
- * Toggle "live" state for a question.
- * Calls the flat route we added: PATCH /api/questions/:id/activate
- */
-export async function updateQuestion(
-  questionId: string,
-  body: { isActive: boolean }
-): Promise<Question> {
-  return fetchJson<Question>(`${API}/api/questions/${questionId}/activate`, {
+export function updateQuestion(id: string, patch: Partial<Question>) {
+  return fetchJson(`/api/questions/${id}`, {
     method: "PATCH",
-    body: JSON.stringify(body),
-  });
+    body: JSON.stringify(patch),
+  }) as Promise<Question>;
 }
 
-// ------------------------------------------------------------------
-// Responses
-// ------------------------------------------------------------------
+export function activateQuestion(id: string) {
+  return fetchJson(`/api/questions/${id}/activate`, { method: "PATCH" }) as Promise<Question>;
+}
 
-export async function submitResponse(
-  questionId: string,
-  bodyText: string,
-  participantId = "anon"
-): Promise<ResponseDoc> {
-  return fetchJson<ResponseDoc>(`${API}/api/questions/${questionId}/responses`, {
+export function submitResponse(questionId: string, bodyText: string) {
+  return fetchJson(`/api/questions/${questionId}/responses`, {
     method: "POST",
-    body: JSON.stringify({ participantId, bodyText }),
-  });
-}
-
-// ------------------------------------------------------------------
-// Convenience helpers
-// ------------------------------------------------------------------
-
-/**
- * Fetch all questions for a session and return the first active one.
- * (You can switch to a dedicated /?isActive=true route on the API later.)
- */
-export async function getActiveQuestion(
-  sessionId: string
-): Promise<Question | null> {
-  const qs = await listQuestions(sessionId);
-  return qs.find((q) => q.isActive) ?? null;
+    body: JSON.stringify({ bodyText }),
+  }) as Promise<Response>;
 }
