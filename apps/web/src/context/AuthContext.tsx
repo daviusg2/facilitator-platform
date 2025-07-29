@@ -1,143 +1,66 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 
-type AuthUser = {
-  sub: string;
-  email?: string;
-  name?: string;
-  orgId?: string;
-  role?: string;
-};
-
-type AuthContextShape = {
+type AuthContextValue = {
   idToken: string | null;
-  user: AuthUser | null;
-  email?: string;
-  orgId?: string;
-  signIn: () => void;
-  signOut: () => void;
+  setFromCallback?: (hash: string) => void;
+  signOut: () => void;                         // ← add
+  orgId?: string | null;
+  name?: string | null;
+  email?: string | null;
 };
 
-const AuthContext = createContext<AuthContextShape>({
+const AuthContext = createContext<AuthContextValue>({
   idToken: null,
-  user: null,
-  signIn: () => {},
-  signOut: () => {},
+  signOut: () => {},                           // ← default noop
 });
 
-function parseJwt<T = any>(token: string): T {
-  const [, payload] = token.split(".");
-  const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
-  return JSON.parse(decodeURIComponent(escape(json)));
-}
-
-function readHashToken(): string | null {
-  // e.g. #id_token=...&access_token=...&token_type=Bearer&expires_in=3600
-  const hash = window.location.hash.startsWith("#")
-    ? window.location.hash.substring(1)
-    : window.location.hash;
-  if (!hash) return null;
-  const params = new URLSearchParams(hash);
-  return params.get("id_token");
-}
-
-
-
-const COGNITO_DOMAIN = import.meta.env.VITE_COGNITO_DOMAIN as string;
-const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID as string;
-const REDIRECT_URI = import.meta.env.VITE_COGNITO_REDIRECT_URI as string;
-const LOGOUT_URI = import.meta.env.VITE_COGNITO_LOGOUT_URI as string;
-
-function buildAuthorizeUrl() {
-  if (!COGNITO_DOMAIN || !CLIENT_ID || !REDIRECT_URI) {
-    console.error("Cognito env vars missing", { COGNITO_DOMAIN, CLIENT_ID, REDIRECT_URI });
-    alert("Auth config missing. Check apps/web/.env");
-    return "/";
-  }
-  const params = new URLSearchParams({
-    client_id: CLIENT_ID,
-    response_type: "token",               // implicit for MVP
-    scope: "openid email profile aws.cognito.signin.user.admin",
-    redirect_uri: REDIRECT_URI,
-  });
-  return `${COGNITO_DOMAIN}/oauth2/authorize?${params.toString()}`;
-}
-
-function buildLogoutUrl() {
-  if (!COGNITO_DOMAIN || !CLIENT_ID || !LOGOUT_URI) return "/";
-  const params = new URLSearchParams({
-    client_id: CLIENT_ID,
-    logout_uri: LOGOUT_URI,
-  });
-  return `${COGNITO_DOMAIN}/logout?${params.toString()}`;
-}
-
-
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [idToken, setIdToken] = useState<string | null>(() => localStorage.getItem("id_token"));
-  const [user, setUser] = useState<AuthUser | null>(null);
-
-  // On first load or callback, capture id_token from hash and persist
-  useEffect(() => {
-    const hashToken = readHashToken();
-    if (hashToken) {
-      setIdToken(hashToken);
-      localStorage.setItem("id_token", hashToken); // <-- only use idToken variable that exists
-      // Clean up the URL: keep path but remove the hash
-      window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
-    }
-  }, []);
-
-  // Whenever idToken changes, decode user
-  useEffect(() => {
-    if (!idToken) {
-      setUser(null);
-      return;
-    }
-    try {
-      const payload = parseJwt<any>(idToken);
-      const u: AuthUser = {
-        sub: payload.sub,
-        email: payload.email,
-        name: payload.name,
-        orgId: payload["custom:orgId"],
-        role: payload["custom:role"],
-      };
-      setUser(u);
-    } catch (e) {
-      console.error("Failed to decode idToken", e);
-      setUser(null);
-    }
-  }, [idToken]);
-
-  const signIn = () => {
-  window.location.href = buildAuthorizeUrl();
-};
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [idToken, setIdToken] = useState<string | null>(
+    localStorage.getItem("id_token")
+  );
 
   const signOut = () => {
-  // clear local tokens then go to Hosted UI logout
-  localStorage.removeItem("id_token");
-  localStorage.removeItem("access_token");
-  localStorage.removeItem("expires_at");
-  window.location.href = buildLogoutUrl();
-};
+    localStorage.removeItem("id_token");
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("token_expires_at");
+    // hard redirect to wipe in-memory state
+    window.location.href = "/";
+  };
 
-  const value = useMemo<AuthContextShape>(
+  const setFromCallback = (hash: string) => {
+    // optional: keep a copy for debugging
+    try {
+      const clean = hash.startsWith("#") ? hash.slice(1) : hash;
+      const params = new URLSearchParams(clean);
+      const token = params.get("id_token");
+      const access = params.get("access_token");
+      const expiresIn = params.get("expires_in");
+
+      if (token) {
+        localStorage.setItem("id_token", token);
+        if (access) localStorage.setItem("access_token", access);
+        if (expiresIn) {
+          const exp = Date.now() + Number(expiresIn) * 1000;
+          localStorage.setItem("token_expires_at", String(exp));
+        }
+        setIdToken(token);
+      }
+    } catch (e) {
+      console.error("setFromCallback error", e);
+    }
+  };
+
+  const value = useMemo(
     () => ({
       idToken,
-      user,
-      email: user?.email,
-      orgId: user?.orgId,
-      signIn,
-      signOut,
+      setFromCallback,
+      signOut,                     // ← expose
     }),
-    [idToken, user]
+    [idToken]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
-
-export function useAuth() {
-  return useContext(AuthContext);
 }
 
+export const useAuth = () => useContext(AuthContext);
 

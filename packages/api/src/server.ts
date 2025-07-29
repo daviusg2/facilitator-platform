@@ -1,68 +1,72 @@
-import dotenv from "dotenv";
-dotenv.config();
-
+import "dotenv/config";
 import express from "express";
-import http from "http";
 import cors from "cors";
 import mongoose from "mongoose";
-import { createServer } from "http";
+import http from "http";
 import { initIO } from "./socket";
-import { requireAuth } from "./middleware/requireAuth"; // named export
-import { errorHandler } from "./middleware/errorHandler";
 
+import requireAuth from "./middleware/requireAuth";
 import meRouter from "./routes/me";
-import sessionRouter from "./routes/session";           // default export
-import questionRouter from "./routes/question";         // default export
-import { responseRouter } from "./routes/response";         // default export
+import sessionRouter from "./routes/session";
+import questionRouter from "./routes/question";
 
-const PORT = Number(process.env.PORT || 4000);
+const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
 const MONGODB_URI = process.env.MONGODB_URI!;
 
 async function bootstrap() {
+  await mongoose.connect(MONGODB_URI);
+  console.log("✅ MongoDB connected");
+
   const app = express();
   app.use(cors({ origin: "*"}));
   app.use(express.json());
 
-  // Health first — include DB state so we can observe readiness
- app.get("/health", (_req, res) =>
-  res.json({ status: "ok", db: mongoose.connection.readyState })
-);
+  app.get("/health", (_req, res) =>
+    res.json({
+      status: "ok",
+      db: mongoose.connection.readyState,
+      env: {
+        REGION: process.env.REGION,
+        USER_POOL_ID: process.env.USER_POOL_ID,
+        COGNITO_AUDIENCE: process.env.COGNITO_AUDIENCE,
+      },
+    })
+  );
 
-  // 1) Connect DB BEFORE attaching middleware that hits DB
-  try {
-    await mongoose.connect(MONGODB_URI);
-    console.log("✅ MongoDB connected");
-  } catch (err) {
-    console.error("❌ MongoDB connection failed:", (err as any).message);
-    process.exit(1);
-  }
+  // Debug: verify imported types
+  console.log("DEBUG typeof requireAuth:", typeof requireAuth);
+  console.log("DEBUG typeof meRouter:", typeof meRouter);
+  console.log("DEBUG typeof sessionRouter:", typeof sessionRouter);
+  console.log("DEBUG typeof questionRouter:", typeof questionRouter);
 
-  // 2) Now it is safe to use requireAuth (it does User.findOne)
-  app.use(requireAuth);
+  // Protect everything under /api with JWT
+  app.use("/api", requireAuth);
 
-  // 3) Routers
+  // Routes
   app.use("/api/me", meRouter);
   app.use("/api/sessions", sessionRouter);
   app.use("/api/questions", questionRouter);
-  app.use("/api/responses", responseRouter);
 
-  // 4) Error handler last
-  app.use(errorHandler);
+  // 404
+  app.use((_req, res) => res.status(404).json({ error: "Not Found" }));
 
-  // 5) HTTP + sockets
-  const httpServer = createServer(app);
-initIO(httpServer);
+  // Error handler
+  app.use(
+    (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      console.error("💥 API error:", err);
+      res.status(500).json({ error: "Internal" });
+    }
+  );
 
-const PORT = process.env.PORT ?? 4000;
+  const httpServer = http.createServer(app);
+  initIO(httpServer);
 
-async function bootstrap() {
-  await mongoose.connect(process.env.MONGODB_URI!);
-  console.log("✅ MongoDB connected");
   httpServer.listen(PORT, () => {
     console.log(`🚀 API + sockets on http://localhost:${PORT}`);
   });
 }
 
-bootstrap().catch((err) => {
-  console.error("❌ Failed to start API:", err);
-})}
+bootstrap().catch((e) => {
+  console.error("❌ Failed to start API:", e);
+  process.exit(1);
+});

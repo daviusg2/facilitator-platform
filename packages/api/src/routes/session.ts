@@ -1,9 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { Types } from "mongoose";
-import * as RequireAuthMod from "../middleware/requireAuth";
-const requireAuth =
-  (RequireAuthMod as any).default ?? (RequireAuthMod as any);
+import requireAuth from "../middleware/requireAuth";
 import Session from "../models/session";
 
 const router = Router();
@@ -14,16 +12,9 @@ const router = Router();
  * Optional filters: ?mine=true to only return caller's sessions.
  */
 router.get("/", requireAuth, async (req, res) => {
-  try {
-    const orgId = (req as any).auth?.orgId || req.query.orgId;
-    if (!orgId) return res.status(400).json({ error: "orgId required" });
-
-    const list = await Session.find({ orgId }).sort({ createdAt: -1 });
-    res.json(list);
-  } catch (err) {
-    console.error("API error:", err);
-    res.status(500).json({ error: "Internal" });
-  }
+  const orgId = (req as any).user["custom:orgId"];
+  const sessions = await Session.find({ orgId }).sort({ createdAt: -1 });
+  res.json(sessions);
 });
 
 /**
@@ -37,23 +28,23 @@ const CreateSessionSchema = z.object({
 
 router.post("/", requireAuth, async (req, res) => {
   try {
-    const auth = (req as any).auth!;
-    const { title } = req.body;
-    if (!title) return res.status(400).json({ error: "title required" });
+    const claims = (req as any).user;
+    const orgId = claims["custom:orgId"];
+    const facilitatorId = claims.sub; // we store Cognito sub as user id
 
     const doc = await Session.create({
-      orgId: auth.orgId,
-      facilitatorId: auth.userId,   // now a Mongo _id string
-      title,
+      orgId,
+      facilitatorId, // your model type should be String now
+      title: req.body.title,
       moduleType: "discussion",
       status: "draft",
     });
     res.status(201).json(doc);
-  } catch (err) {
-    console.error("Create session error:", err);
+  } catch (e) {
+    console.error("Create session error:", e);
     res.status(500).json({ error: "Internal" });
   }
-})
+});
 
 export default router;
 

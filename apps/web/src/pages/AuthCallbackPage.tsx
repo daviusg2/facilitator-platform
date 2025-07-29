@@ -1,21 +1,36 @@
 import { useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { exchangeCodeForTokens } from "../lib/auth";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 export default function AuthCallbackPage() {
-  const [params] = useSearchParams();
+  const { setFromCallback } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const code = params.get("code");
-    if (!code) return;
-    exchangeCodeForTokens(code)
-      .then(() => navigate("/", { replace: true }))
-      .catch((err) => {
-        console.error(err);
-        navigate("/?auth=error", { replace: true });
-      });
-  }, [params, navigate]);
+    const hash = window.location.hash.startsWith("#")
+      ? window.location.hash.slice(1)
+      : window.location.hash;
 
-  return <p className="p-6 text-center">Signing you in…</p>;
+    const params = new URLSearchParams(hash);
+    const idToken = params.get("id_token");
+    const accessToken = params.get("access_token");
+    const expiresIn = params.get("expires_in") ?? "3600";
+
+    if (idToken) {
+      localStorage.setItem("id_token", idToken);
+      if (accessToken) localStorage.setItem("access_token", accessToken);
+      const exp = Date.now() + Number(expiresIn) * 1000;
+      localStorage.setItem("token_expires_at", String(exp));
+
+      setFromCallback?.(window.location.hash);
+      navigate("/dashboard", { replace: true });
+    } else {
+      console.error("No id_token found in callback fragment");
+      navigate("/", { replace: true });
+    }
+  }, [setFromCallback, navigate]);
+
+  return <div className="p-6 text-sm text-gray-600">Signing you in…</div>;
 }
+
+
