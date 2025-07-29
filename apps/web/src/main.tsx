@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider, createBrowserRouter } from "react-router-dom";
 
 import "./index.css";
+import App from "./App";
 import Layout from "./components/Layout";
 import DashboardPage from "./pages/DashboardPage";
 import SessionHostPage from "./pages/SessionHostPage";
@@ -15,6 +16,7 @@ const router = createBrowserRouter([
   {
     element: <Layout />,
     children: [
+      { path: "/", element: <App /> },
       { index: true, element: <DashboardPage /> },
       { path: "session/:id", element: <SessionHostPage /> },
     ],
@@ -30,5 +32,8 @@ createRoot(document.getElementById("root")!).render(
     </AuthProvider>
   </StrictMode>
 );
+// TEMP DEBUG
+console.log("VITE env →", import.meta.env);
+(window as any).__VITE_ENV__ = import.meta.env;
 
 

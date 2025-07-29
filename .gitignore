@@ -3,3 +3,8 @@
 *.env.local
 apps/web/.env
 packages/api/.env
+# env
+*.env
+packages/api/.env
+apps/web/.env
+
