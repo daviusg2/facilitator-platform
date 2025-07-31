@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
-  activateQuestion,
   submitResponse,
 } from "../lib/api";
+import type activateQuestion from "../lib/api";
+
 import { io } from "socket.io-client";
 
 interface Question {
