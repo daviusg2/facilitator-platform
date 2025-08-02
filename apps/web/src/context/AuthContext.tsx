@@ -1,66 +1,75 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { create } from "zustand";
 
-type AuthContextValue = {
-  idToken: string | null;
-  setFromCallback?: (hash: string) => void;
-  signOut: () => void;                         // ← add
-  orgId?: string | null;
-  name?: string | null;
-  email?: string | null;
-};
+/* ---------- Zustand slice (readable outside React) ---------- */
+interface AuthState {
+  idToken?: string;
+  setIdToken: (t?: string) => void;
+}
+export const useAuth = create<AuthState>((set) => ({
+  idToken: localStorage.getItem("id_token") ?? undefined,
+  setIdToken: (t) => {
+    if (t) localStorage.setItem("id_token", t);
+    else localStorage.removeItem("id_token");
+    set({ idToken: t });
+  },
+}));
 
-const AuthContext = createContext<AuthContextValue>({
-  idToken: null,
-  signOut: () => {},                           // ← default noop
-});
+/* ---------- React provider (for sign‑in / sign‑out helpers) ---------- */
+interface Ctx {
+  signIn: () => void;
+  signOut: () => void;
+  // called by AuthCallbackPage
+  completeAuth: (hashFragment: string) => void;
+}
+const Ctx = createContext<Ctx | null>(null);
+export const useAuthActions = () => useContext(Ctx)!;
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [idToken, setIdToken] = useState<string | null>(
-    localStorage.getItem("id_token")
-  );
+// Separate component that uses useNavigate
+function AuthProviderInner({ children }: { children: React.ReactNode }) {
+  const navigate = useNavigate();
+  const setIdToken = useAuth((s) => s.setIdToken);
 
-  const signOut = () => {
-    localStorage.removeItem("id_token");
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("token_expires_at");
-    // hard redirect to wipe in-memory state
-    window.location.href = "/";
-  };
+  const signIn = useCallback(() => {
+    const dom = import.meta.env.VITE_COGNITO_HOSTED_UI_DOMAIN;
+    const client = import.meta.env.VITE_COGNITO_CLIENT_ID;
+    const redirect = encodeURIComponent(import.meta.env.VITE_COGNITO_REDIRECT_URI);
+    const url = `https://${dom}/oauth2/authorize?client_id=${client}&response_type=token&scope=openid%20email%20profile&redirect_uri=${redirect}`;
+    window.location.assign(url);
+  }, []);
 
-  const setFromCallback = (hash: string) => {
-    // optional: keep a copy for debugging
-    try {
-      const clean = hash.startsWith("#") ? hash.slice(1) : hash;
-      const params = new URLSearchParams(clean);
-      const token = params.get("id_token");
-      const access = params.get("access_token");
-      const expiresIn = params.get("expires_in");
+  const signOut = useCallback(() => {
+    setIdToken(undefined);
+    const dom = import.meta.env.VITE_COGNITO_HOSTED_UI_DOMAIN;
+    const logout = import.meta.env.VITE_COGNITO_LOGOUT_URI;
+    window.location.assign(`https://${dom}/logout?logout_uri=${encodeURIComponent(logout)}`);
+  }, [setIdToken]);
 
-      if (token) {
-        localStorage.setItem("id_token", token);
-        if (access) localStorage.setItem("access_token", access);
-        if (expiresIn) {
-          const exp = Date.now() + Number(expiresIn) * 1000;
-          localStorage.setItem("token_expires_at", String(exp));
-        }
-        setIdToken(token);
+  const completeAuth = useCallback(
+    (hash: string) => {
+      const p = new URLSearchParams(hash.replace(/^#/, ""));
+      const tok = p.get("id_token") ?? undefined;
+      if (tok) {
+        setIdToken(tok);
+        navigate("/dashboard", { replace: true });
+      } else {
+        console.error("No id_token in callback");
+        navigate("/", { replace: true });
       }
-    } catch (e) {
-      console.error("setFromCallback error", e);
-    }
-  };
-
-  const value = useMemo(
-    () => ({
-      idToken,
-      setFromCallback,
-      signOut,                     // ← expose
-    }),
-    [idToken]
+    },
+    [setIdToken, navigate]
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <Ctx.Provider value={{ signIn, signOut, completeAuth }}>
+      {children}
+    </Ctx.Provider>
+  );
 }
 
-export const useAuth = () => useContext(AuthContext);
+// Main export - doesn't use useNavigate directly
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  return <AuthProviderInner>{children}</AuthProviderInner>;
+}
 

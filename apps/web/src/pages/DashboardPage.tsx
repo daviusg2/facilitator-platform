@@ -1,76 +1,79 @@
 import { useEffect, useState } from "react";
+import { useAuthActions } from "../context/AuthContext";
 import { listSessions, createSession } from "../lib/api";
-import { useAuth } from "../context/AuthContext";
-
-interface Session {
-  _id: string;
-  title: string;
-  status: string;
-  moduleType: string;
-  orgId: string;
-  facilitatorId: string;
-  createdAt: string;
-}
+import type SessionDTO from "../lib/api";
+import { useOrgStore } from "../store/useOrgStore";
 
 export default function DashboardPage() {
-  const { email, orgId } = useAuth(); // for display only
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [newTitle, setNewTitle] = useState("");
+  const { signOut } = useAuthActions();
+  const { orgId } = useOrgStore();
+  const [sessions, setSessions] = useState<SessionDTO[]>([]);
+  const [title, setTitle] = useState("");
 
   useEffect(() => {
-  listSessions()
-    .then(setSessions)
-    .catch((e) => console.error("listSessions error", e));
-}, []);
+    listSessions(orgId)
+      .then(setSessions)
+      .catch((e) => console.error("listSessions error", e));
+  }, [orgId]);
 
-  async function handleCreate() {
-    if (!newTitle.trim()) return;
-    const created = await createSession(newTitle.trim());
-    setSessions((prev) => [created, ...prev]);
-    setNewTitle("");
-  }
+  const handleCreate = async () => {
+    if (!title.trim()) return;
+    try {
+      const s = await createSession(title.trim(), orgId);
+      setSessions((p) => [...p, s]);
+      setTitle("");
+    } catch (e) {
+      console.error("createSession error", e);
+    }
+  };
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-2">Facilitator Dashboard</h1>
-      <p className="text-sm text-gray-600 mb-6">
-        Signed in as <span className="font-medium">{email}</span>
-        {orgId ? ` — Org: ${orgId}` : null}
-      </p>
-
-      <div className="flex gap-2 mb-6">
-        <input
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          placeholder="Session title"
-          className="flex-1 border rounded px-3 py-2"
-        />
-        <button onClick={handleCreate} className="bg-blue-600 text-white px-4 py-2 rounded">
-          Create session
+    <div className="max-w-3xl mx-auto p-6 space-y-6">
+      <header className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold">Facilitator Dashboard</h1>
+        <button onClick={signOut} className="text-sm text-blue-600">
+          Sign out
         </button>
-      </div>
+      </header>
 
-      <ul className="space-y-2">
-        {sessions.map((s) => (
-          <li key={s._id} className="border rounded p-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium">{s.title}</div>
-                <div className="text-xs text-gray-500">
-                  {s.moduleType} • {s.status} • {new Date(s.createdAt).toLocaleString()}
-                </div>
-              </div>
-              <a
-                href={`/session/${s._id}`}
-                className="text-sm px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
-              >
-                Open
-              </a>
-            </div>
-          </li>
-        ))}
-      </ul>
+      <section className="space-y-3">
+        <h2 className="font-semibold">Create session</h2>
+        <div className="flex gap-2">
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Session title"
+            className="border rounded px-3 py-2 flex-1"
+          />
+          <button
+            onClick={handleCreate}
+            className="bg-green-600 text-white rounded px-4"
+          >
+            Add
+          </button>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="font-semibold">Sessions</h2>
+        {sessions.length === 0 ? (
+          <p className="text-gray-500 text-sm">No sessions yet.</p>
+        ) : (
+          <ul className="border rounded divide-y">
+            {sessions.map((s) => (
+              <li key={s._id} className="p-3 flex justify-between">
+                <span>{s.title}</span>
+                <span className="text-xs text-gray-500">
+                  {new Date(s.createdAt).toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
+
+
 
