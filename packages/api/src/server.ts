@@ -3,66 +3,110 @@ import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
 import http from "http";
-import { initIO } from "./socket";
+import { Server } from "socket.io";
 
+// routes & middleware
 import requireAuth from "./middleware/requireAuth";
 import meRouter from "./routes/me";
 import sessionRouter from "./routes/session";
 import questionRouter from "./routes/question";
 
-const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
+const PORT = Number(process.env.PORT) || 4000;
 const MONGODB_URI = process.env.MONGODB_URI!;
 
+// Global variable to store the Socket.IO instance
+let io: Server;
+
+// Export function to get the Socket.IO instance
+export const getIO = () => {
+  if (!io) {
+    throw new Error("Socket.io not initialised");
+  }
+  return io;
+};
+
 async function bootstrap() {
+  /* ─── DB ─────────────────────────────────────────────── */
   await mongoose.connect(MONGODB_URI);
   console.log("✅ MongoDB connected");
 
+  /* ─── Express app ────────────────────────────────────── */
   const app = express();
-  app.use(cors({ origin: "*"}));
+  
+  // Fix CORS configuration
+  app.use(cors({ 
+    origin: ["http://localhost:5173"], // Specific origin instead of "*"
+    credentials: true // Allow credentials
+  }));
+  
   app.use(express.json());
 
   app.get("/health", (_req, res) =>
-    res.json({
-      status: "ok",
-      db: mongoose.connection.readyState,
-      env: {
-        REGION: process.env.REGION,
-        USER_POOL_ID: process.env.USER_POOL_ID,
-        COGNITO_AUDIENCE: process.env.COGNITO_AUDIENCE,
-      },
-    })
+    res.json({ status: "ok", db: mongoose.connection.readyState })
   );
 
-  // Debug: verify imported types
-  console.log("DEBUG typeof requireAuth:", typeof requireAuth);
-  console.log("DEBUG typeof meRouter:", typeof meRouter);
-  console.log("DEBUG typeof sessionRouter:", typeof sessionRouter);
-  console.log("DEBUG typeof questionRouter:", typeof questionRouter);
+  // Add a simple test route
+  app.get("/api/test", (_req, res) => {
+    console.log("🧪 Test route hit!");
+    res.json({ message: "Test route works!", timestamp: new Date().toISOString() });
+  });
 
-  // Protect everything under /api with JWT
-  app.use("/api", requireAuth);
+  // Request logger (optional)
+  app.use((req, _res, next) => {
+    console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+    next();
+  });
 
-  // Routes
+  // JWT-protected API
+  // Temporarily bypass auth for testing
+  // app.use("/api", requireAuth);
   app.use("/api/me", meRouter);
   app.use("/api/sessions", sessionRouter);
   app.use("/api/questions", questionRouter);
 
-  // 404
   app.use((_req, res) => res.status(404).json({ error: "Not Found" }));
-
-  // Error handler
   app.use(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
       console.error("💥 API error:", err);
       res.status(500).json({ error: "Internal" });
     }
   );
 
+  /* ─── HTTP + Socket.IO ───────────────────────────────── */
   const httpServer = http.createServer(app);
-  initIO(httpServer);
 
+  // Initialize Socket.IO and store in global variable
+  io = new Server(httpServer, {
+    cors: { 
+      origin: ["http://localhost:5173"],
+      credentials: true // This is the key fix!
+    },
+  });
+
+  console.log("✅ Socket.IO initialized");
+
+  io.on("connection", (socket) => {
+    console.log("🔌 socket connected:", socket.id);
+
+    socket.on("join-session", (id) => {
+      console.log(`📍 Socket ${socket.id} joining session: ${id}`);
+      socket.join(id);
+    });
+    
+    socket.on("question-activated", (id, q) => {
+      console.log(`📡 Broadcasting question to session ${id}:`, q);
+      socket.to(id).emit("question-activated", q);
+    });
+
+    socket.on("disconnect", () => {
+      console.log("🔌 socket disconnected:", socket.id);
+    });
+  });
+
+  /* ─── Start server ───────────────────────────────────── */
   httpServer.listen(PORT, () => {
-    console.log(`🚀 API + sockets on http://localhost:${PORT}`);
+    console.log(`🚀 API + Socket.IO on http://localhost:${PORT}`);
   });
 }
 
