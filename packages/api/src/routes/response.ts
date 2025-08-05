@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { DiscussionResponseModel } from "../models/discussionResponse";
-import { DiscussionQuestionModel } from "../models/discussionQuestion";
+import DiscussionQuestion from "../models/discussionQuestion"; // Default export
+import { DiscussionResponseModel } from "../models/discussionResponse"; // Named export
 import { getIO } from "/Users/davidgoddard/Desktop/Facilitator-platform/packages/api/src/socket";
 
 export const responseRouter = Router();
@@ -8,7 +8,7 @@ export const responseRouter = Router();
 // POST /api/questions/:id/responses
 responseRouter.post("/:id/responses", async (req, res, next) => {
   try {
-    const question = await DiscussionQuestionModel.findById(req.params.id);
+    const question = await DiscussionQuestion.findById(req.params.id);
     if (!question) return res.status(404).json({ error: "Question not found" });
 
     const doc = await DiscussionResponseModel.create({

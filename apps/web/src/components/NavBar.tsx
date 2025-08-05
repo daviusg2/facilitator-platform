@@ -1,8 +1,8 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuthActions } from "../context/AuthContext"; // Changed this import
 
 export default function NavBar() {
-  const { signOut } = useAuth();
+  const { signOut } = useAuthActions(); // Changed from useAuth() to useAuthActions()
   const navigate = useNavigate();
 
   const onSignOut = () => {

@@ -2,48 +2,117 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   submitResponse,
+  getActiveQuestion,
 } from "../lib/api";
-import type activateQuestion from "../lib/api";
-
-import { io } from "socket.io-client";
-
-interface Question {
-  _id: string;
-  promptText: string;
-}
+import type { QuestionDTO } from "../lib/api";
+import { io, Socket } from "socket.io-client";
 
 export default function JoinPage() {
-  const { code: sessionId } = useParams<{ code: string }>();
-  const [question, setQuestion] = useState<Question | null>(null);
+  const { code } = useParams<{ code: string }>(); // Changed to match /join/:code route
+  const sessionId = code; // Use code as sessionId
+  const [question, setQuestion] = useState<QuestionDTO | null>(null);
   const [text, setText] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // fetch active Q on mount
+  console.log("🔍 JoinPage - code from params:", code);
+  console.log("🔍 JoinPage - URL:", window.location.pathname);
+
   useEffect(() => {
-    if (!sessionId) return;
-    getActiveQuestion(sessionId)
-      .then((arr) => setQuestion(arr[0] ?? null))
-      .catch(console.error);
+    if (!sessionId) {
+      setLoading(false);
+      return;
+    }
 
-    // live updates
-    const sock = io("http://localhost:4000");
+    // Create socket connection
+    const sock: Socket = io(
+      import.meta.env.VITE_API_URL ?? "http://localhost:4000"
+      // Remove withCredentials: true - this was causing the CORS issue
+    );
+
     sock.emit("join-session", sessionId);
-    sock.on("question-activated", (q: Question) => setQuestion(q));
-    return () => sock.disconnect();
+    console.log("🔌 Participant joined session:", sessionId);
+
+    // Listen for new questions being activated
+    sock.on("question-activated", (q: QuestionDTO) => {
+      console.log("📢 New question activated:", q);
+      setQuestion(q);
+    });
+
+    // Fetch current active question on mount
+    getActiveQuestion(sessionId)
+      .then((activeQ) => {
+        console.log("📋 Current active question:", activeQ);
+        setQuestion(activeQ);
+      })
+      .catch((err) => {
+        console.log("ℹ️ No active question found:", err);
+        // This is expected if no question is active yet
+      })
+      .finally(() => setLoading(false));
+
+    return () => {
+      console.log("🔌 Disconnecting participant socket");
+      sock.disconnect();
+    };
   }, [sessionId]);
 
   const handleSend = async () => {
-    if (!question || !text.trim()) return;
-    await submitResponse(question._id, text);
-    setText("");                 // clear box
-    alert("Sent!");              // temporary UX
+    if (!question || !text.trim()) {
+      console.log("⚠️ Cannot submit: missing question or text", { question: !!question, text });
+      return;
+    }
+
+    try {
+      console.log("📤 Submitting response:", text);
+      await submitResponse(question._id, text);
+      setText("");
+      console.log("✅ Response submitted successfully");
+      
+      // Better UX than alert
+      setError("Response submitted! ✅");
+      setTimeout(() => setError(null), 3000);
+    } catch (err) {
+      console.error("❌ Error submitting response:", err);
+      setError("Failed to submit response");
+    }
   };
 
-  if (!question)
-    return <p className="p-6 text-center">Waiting for the facilitator…</p>;
+  if (loading) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center p-6">
+        <p>Loading session...</p>
+      </div>
+    );
+  }
+
+  if (!question) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center p-6 text-center">
+        <h2 className="text-xl font-semibold mb-4">Waiting for questions...</h2>
+        <p className="text-gray-600 mb-4">The facilitator hasn't activated a question yet.</p>
+        <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+          Session ID: {sessionId}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen flex flex-col items-center justify-center p-6">
-      <h1 className="text-xl font-semibold mb-4">{question.promptText}</h1>
+      {error && (
+        <div className={`mb-4 p-3 rounded ${
+          error.includes('✅') 
+            ? 'bg-green-100 text-green-700' 
+            : 'bg-red-100 text-red-700'
+        }`}>
+          {error}
+        </div>
+      )}
+
+      <h1 className="text-xl font-semibold mb-4 text-center max-w-md">
+        {question.promptText}
+      </h1>
 
       <textarea
         rows={4}
@@ -52,12 +121,18 @@ export default function JoinPage() {
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
+      
       <button
         onClick={handleSend}
-        className="bg-blue-600 text-white px-6 py-2 rounded"
+        disabled={!text.trim()}
+        className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:bg-gray-400"
       >
-        Submit
+        Submit Response
       </button>
+
+      <div className="mt-4 text-xs text-gray-500">
+        Question {question.order} • Session: {sessionId}
+      </div>
     </div>
   );
 }

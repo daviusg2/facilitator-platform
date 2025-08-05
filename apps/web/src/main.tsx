@@ -25,27 +25,28 @@ const router = createBrowserRouter([
     path: "/",
     element: <RootLayout />, // Auth provider goes here
     children: [
+      { index: true, element: <App /> }, // Landing page with sign-in
+      { path: "dashboard", element: <DashboardPage /> }, // Dashboard page
       {
         element: <Layout />,
         children: [
-          { path: "/", element: <App /> },
-          { index: true, element: <DashboardPage /> },
           { path: "session/:id", element: <SessionHostPage /> },
         ],
       },
-      { path: "/join/:code", element: <JoinPage /> },
-      { path: "/auth/callback", element: <AuthCallbackPage /> },
+      { path: "join/:code", element: <JoinPage /> },
+      { path: "auth/callback", element: <AuthCallbackPage /> },
     ],
   },
 ]);
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode>
+
     <RouterProvider router={router} />
-  </StrictMode>
+
 );
 
-// TEMP DEBUG
-console.log("VITE env →", import.meta.env);
-(window as any).__VITE_ENV__ = import.meta.env;
-
+// Development debugging - moved to conditional
+if (import.meta.env.DEV) {
+  console.log("VITE env →", import.meta.env);
+  (window as any).__VITE_ENV__ = import.meta.env;
+}

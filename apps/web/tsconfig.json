@@ -1,7 +1,16 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./tsconfig.app.json" },
-    { "path": "./tsconfig.node.json" }
-  ]
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    /* front-end specifics */
+    "module": "esnext",        // ✔️ allows import.meta and tree-shaking
+    "target": "es2020",
+    "jsx": "react-jsx",        // ✔️ new JSX runtime – no need to import React
+    "rootDir": "src",
+    "outDir": "dist",
+    "lib": ["dom", "dom.iterable", "es2020"]
+  },
+  "include": ["src/**/*"]
 }
+
+
+

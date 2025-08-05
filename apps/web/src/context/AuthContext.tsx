@@ -1,20 +1,73 @@
-import { createContext, useContext, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { createContext, useContext, useCallback } from "react";
 import { create } from "zustand";
+import { useNavigate } from 'react-router-dom';
 
 /* ---------- Zustand slice (readable outside React) ---------- */
 interface AuthState {
   idToken?: string;
+  accessToken?: string;
   setIdToken: (t?: string) => void;
+  setAccessToken: (t?: string) => void;
+  setTokens: (idToken?: string, accessToken?: string) => void;
 }
+
 export const useAuth = create<AuthState>((set) => ({
   idToken: localStorage.getItem("id_token") ?? undefined,
+  accessToken: localStorage.getItem("access_token") ?? undefined,
+  
   setIdToken: (t) => {
     if (t) localStorage.setItem("id_token", t);
     else localStorage.removeItem("id_token");
     set({ idToken: t });
   },
+  
+  setAccessToken: (t) => {
+    if (t) localStorage.setItem("access_token", t);
+    else localStorage.removeItem("access_token");
+    set({ accessToken: t });
+  },
+  
+  setTokens: (idToken, accessToken) => {
+    // Handle id_token
+    if (idToken) localStorage.setItem("id_token", idToken);
+    else localStorage.removeItem("id_token");
+    
+    // Handle access_token
+    if (accessToken) localStorage.setItem("access_token", accessToken);
+    else localStorage.removeItem("access_token");
+    
+    set({ idToken, accessToken });
+  },
 }));
+
+/* ---------- Navigation helper (use this in components that need navigation) ---------- */
+export const useAuthNavigation = () => {
+  const setTokens = useAuth((s) => s.setTokens);
+  
+  const completeAuth = useCallback(
+    (hash: string, navigate: (path: string, options?: any) => void) => {
+      const p = new URLSearchParams(hash.replace(/^#/, ""));
+      const idToken = p.get("id_token") ?? undefined;
+      const accessToken = p.get("access_token") ?? undefined;
+      
+      console.log("🔍 Available tokens in URL:", {
+        access_token: accessToken ? "present" : "missing",
+        id_token: idToken ? "present" : "missing",
+      });
+      
+      if (idToken || accessToken) {
+        setTokens(idToken, accessToken);
+        navigate("/dashboard", { replace: true });
+      } else {
+        console.error("No id_token or access_token in callback");
+        navigate("/", { replace: true });
+      }
+    },
+    [setTokens]
+  );
+
+  return { completeAuth };
+};
 
 /* ---------- React provider (for sign‑in / sign‑out helpers) ---------- */
 interface Ctx {
@@ -26,10 +79,9 @@ interface Ctx {
 const Ctx = createContext<Ctx | null>(null);
 export const useAuthActions = () => useContext(Ctx)!;
 
-// Separate component that uses useNavigate
-function AuthProviderInner({ children }: { children: React.ReactNode }) {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
-  const setIdToken = useAuth((s) => s.setIdToken);
+  const setTokens = useAuth((s) => s.setTokens);
 
   const signIn = useCallback(() => {
     const dom = import.meta.env.VITE_COGNITO_HOSTED_UI_DOMAIN;
@@ -40,25 +92,37 @@ function AuthProviderInner({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(() => {
-    setIdToken(undefined);
+    setTokens(undefined, undefined);
     const dom = import.meta.env.VITE_COGNITO_HOSTED_UI_DOMAIN;
+    const client = import.meta.env.VITE_COGNITO_CLIENT_ID;
     const logout = import.meta.env.VITE_COGNITO_LOGOUT_URI;
-    window.location.assign(`https://${dom}/logout?logout_uri=${encodeURIComponent(logout)}`);
-  }, [setIdToken]);
+    
+    // Cognito logout requires both client_id and logout_uri parameters
+    const logoutUrl = `https://${dom}/logout?client_id=${client}&logout_uri=${encodeURIComponent(logout)}`;
+    
+    window.location.assign(logoutUrl);
+  }, [setTokens]);
 
   const completeAuth = useCallback(
     (hash: string) => {
       const p = new URLSearchParams(hash.replace(/^#/, ""));
-      const tok = p.get("id_token") ?? undefined;
-      if (tok) {
-        setIdToken(tok);
+      const idToken = p.get("id_token") ?? undefined;
+      const accessToken = p.get("access_token") ?? undefined;
+      
+      console.log("🔍 Available tokens in URL:", {
+        access_token: accessToken ? "present" : "missing",
+        id_token: idToken ? "present" : "missing",
+      });
+      
+      if (idToken || accessToken) {
+        setTokens(idToken, accessToken);
         navigate("/dashboard", { replace: true });
       } else {
-        console.error("No id_token in callback");
+        console.error("No access_token or id_token in callback");
         navigate("/", { replace: true });
       }
     },
-    [setIdToken, navigate]
+    [setTokens, navigate]
   );
 
   return (
@@ -67,9 +131,3 @@ function AuthProviderInner({ children }: { children: React.ReactNode }) {
     </Ctx.Provider>
   );
 }
-
-// Main export - doesn't use useNavigate directly
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  return <AuthProviderInner>{children}</AuthProviderInner>;
-}
-

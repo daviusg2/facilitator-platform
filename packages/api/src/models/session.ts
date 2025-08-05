@@ -3,7 +3,8 @@ import { Schema, model, models, Types } from "mongoose";
 const SessionSchema = new Schema(
   {
     orgId: { type: Schema.Types.ObjectId, ref: "Organisation", required: true },
-    facilitatorId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    // Change facilitatorId to String to store Cognito UUID
+    facilitatorId: { type: String, required: true },
     title: { type: String, required: true },
     moduleType: { type: String, default: "discussion" },
     status: { type: String, default: "draft" },
@@ -13,7 +14,8 @@ const SessionSchema = new Schema(
   { timestamps: true }
 );
 
-const Session =
-  models.Session || model("Session", SessionSchema);
+const Session = models.Session || model("Session", SessionSchema);
+
+
 
 export default Session;
