@@ -1,0 +1,70 @@
+// apps/web/src/hooks/useLoading.ts
+import { useState, useCallback } from 'react';
+import { useToast } from './useToast';
+import { ApiException } from '../lib/api';
+
+interface UseLoadingOptions {
+  showSuccessToast?: boolean;
+  successMessage?: string;
+  showErrorToast?: boolean;
+  onError?: (error: Error) => void;
+  onSuccess?: (result: any) => void;
+}
+
+export const useLoading = <T extends any[], R>(
+  asyncFunction: (...args: T) => Promise<R>,
+  options: UseLoadingOptions = {}
+) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const toast = useToast();
+
+  const {
+    showSuccessToast = false,
+    successMessage = 'Operation completed successfully',
+    showErrorToast = true,
+    onError,
+    onSuccess
+  } = options;
+
+  const execute = useCallback(async (...args: T): Promise<R | null> => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const result = await asyncFunction(...args);
+
+      if (showSuccessToast) {
+        toast.success(successMessage);
+      }
+
+      onSuccess?.(result);
+      return result;
+
+    } catch (err) {
+      const error = err as Error;
+      setError(error);
+
+      if (showErrorToast) {
+        if (error instanceof ApiException) {
+          toast.error('Request Failed', error.message);
+        } else {
+          toast.error('Unexpected Error', error.message || 'Something went wrong');
+        }
+      }
+
+      onError?.(error);
+      return null;
+
+    } finally {
+      setIsLoading(false);
+    }
+  }, [asyncFunction, showSuccessToast, successMessage, showErrorToast, onError, onSuccess, toast]);
+
+  return {
+    execute,
+    isLoading,
+    error,
+    clearError: () => setError(null)
+  };
+};

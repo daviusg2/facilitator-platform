@@ -14,9 +14,51 @@ export default function JoinPage() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
 
   console.log("🔍 JoinPage - code from params:", code);
   console.log("🔍 JoinPage - URL:", window.location.pathname);
+
+  // Timer countdown effect
+  useEffect(() => {
+    if (!question?.timerExpiresAt) {
+      setTimeRemaining(null);
+      return;
+    }
+
+    const updateTimer = () => {
+      const now = new Date();
+      const expires = new Date(question.timerExpiresAt!);
+      const remaining = expires.getTime() - now.getTime();
+      
+      if (remaining <= 0) {
+        setTimeRemaining(0);
+        return;
+      }
+      
+      setTimeRemaining(Math.ceil(remaining / 1000)); // Convert to seconds
+    };
+
+    // Update immediately
+    updateTimer();
+
+    // Update every second
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [question?.timerExpiresAt]);
+
+  const formatTimeRemaining = (seconds: number) => {
+    if (seconds <= 0) return "Time's up!";
+    
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    
+    if (minutes > 0) {
+      return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+    return `${remainingSeconds}s`;
+  };
 
   useEffect(() => {
     if (!sessionId) {
@@ -39,6 +81,26 @@ export default function JoinPage() {
       setQuestion(q);
     });
 
+    // Listen for timer events
+    sock.on("question-timer-started", (data: any) => {
+      console.log("⏰ Timer started:", data);
+      // Update question with timer info
+      setQuestion(prev => prev ? {
+        ...prev,
+        timerExpiresAt: data.expiresAt,
+        timerDurationMinutes: data.durationMinutes
+      } : null);
+    });
+
+    sock.on("question-timer-extended", (data: any) => {
+      console.log("⏰ Timer extended:", data);
+      // Update question with new expiration
+      setQuestion(prev => prev ? {
+        ...prev,
+        timerExpiresAt: data.newExpiresAt
+      } : null);
+    });
+
     // Fetch current active question on mount
     getActiveQuestion(sessionId)
       .then((activeQ) => {
@@ -51,11 +113,20 @@ export default function JoinPage() {
       })
       .finally(() => setLoading(false));
 
+      
+
     return () => {
       console.log("🔌 Disconnecting participant socket");
       sock.disconnect();
     };
   }, [sessionId]);
+
+  // Add this right after the question state update
+useEffect(() => {
+  console.log("🔍 Current question state:", question);
+  console.log("🔍 Has timer?", question?.timerDurationMinutes);
+  console.log("🔍 Timer expires at:", question?.timerExpiresAt);
+}, [question]);
 
   const handleSend = async () => {
     if (!question || !text.trim()) {
@@ -110,6 +181,43 @@ export default function JoinPage() {
         </div>
       )}
 
+      {/* Timer Display */}
+      {question.timerDurationMinutes && (
+        <div className={`mb-4 p-3 rounded-lg border-2 ${
+          timeRemaining === null 
+            ? 'bg-blue-50 border-blue-200' 
+            : timeRemaining > 60 
+              ? 'bg-green-50 border-green-200' 
+              : timeRemaining > 0 
+                ? 'bg-yellow-50 border-yellow-200' 
+                : 'bg-red-50 border-red-200'
+        }`}>
+          <div className="text-center">
+            <div className="text-sm font-medium text-gray-600">
+              ⏰ Time Remaining
+            </div>
+            <div className={`text-2xl font-bold ${
+              timeRemaining === null 
+                ? 'text-blue-600' 
+                : timeRemaining > 60 
+                  ? 'text-green-600' 
+                  : timeRemaining > 0 
+                    ? 'text-yellow-600' 
+                    : 'text-red-600'
+            }`}>
+              {timeRemaining === null 
+                ? 'Timer not started' 
+                : formatTimeRemaining(timeRemaining)}
+            </div>
+            {timeRemaining === 0 && (
+              <div className="text-sm text-red-600 mt-1">
+                You can still submit responses after time expires
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <h1 className="text-xl font-semibold mb-4 text-center max-w-md">
         {question.promptText}
       </h1>
@@ -132,6 +240,9 @@ export default function JoinPage() {
 
       <div className="mt-4 text-xs text-gray-500">
         Question {question.order} • Session: {sessionId}
+        {question.notes && (
+          <div className="mt-1 italic">📝 {question.notes}</div>
+        )}
       </div>
     </div>
   );

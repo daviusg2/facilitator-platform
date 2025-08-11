@@ -1,3 +1,4 @@
+// apps/web/src/main.tsx (Updated)
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider, createBrowserRouter, Outlet } from "react-router-dom";
@@ -10,12 +11,14 @@ import SessionHostPage from "./pages/SessionHostPage";
 import JoinPage from "./pages/JoinPage";
 import AuthCallbackPage from "./pages/AuthCallbackPage";
 import { AuthProvider } from "./context/AuthContext";
+import ToastContainer from "./components/Toast";
 
 // Root component that provides auth context to all routes
 function RootLayout() {
   return (
     <AuthProvider>
       <Outlet />
+      <ToastContainer />
     </AuthProvider>
   );
 }
@@ -40,9 +43,7 @@ const router = createBrowserRouter([
 ]);
 
 createRoot(document.getElementById("root")!).render(
-
-    <RouterProvider router={router} />
-
+  <RouterProvider router={router} />
 );
 
 // Development debugging - moved to conditional

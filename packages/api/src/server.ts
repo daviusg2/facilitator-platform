@@ -10,6 +10,7 @@ import requireAuth from "./middleware/requireAuth";
 import meRouter from "./routes/me";
 import sessionRouter from "./routes/session";
 import questionRouter from "./routes/question";
+import responseManagementRoutes from "./routes/responseManagement";
 
 const PORT = Number(process.env.PORT) || 4000;
 const MONGODB_URI = process.env.MONGODB_URI!;
@@ -63,6 +64,7 @@ async function bootstrap() {
   app.use("/api/me", meRouter);
   app.use("/api/sessions", sessionRouter);
   app.use("/api/questions", questionRouter);
+  app.use("/api/responses", responseManagementRoutes);
 
   app.use((_req, res) => res.status(404).json({ error: "Not Found" }));
   app.use(

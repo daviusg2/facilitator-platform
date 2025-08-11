@@ -1,34 +1,58 @@
-import { Schema, model, models } from "mongoose";
+// packages/api/src/models/discussionResponse.ts
+import { Schema, model, Types } from "mongoose";
 
-const DiscussionResponseSchema = new Schema(
+export interface DiscussionResponse {
+  questionId: Types.ObjectId;
+  participantId: string;        // Could store socket ID or future auth sub
+  bodyText: string;
+  // Add moderation fields
+  isHidden?: boolean;
+  isFlagged?: boolean;
+  isPinned?: boolean;
+  moderatedAt?: Date;
+  moderatedBy?: string;
+}
+
+const responseSchema = new Schema<DiscussionResponse>(
   {
-    questionId: { 
-      type: Schema.Types.ObjectId, 
-      ref: "DiscussionQuestion", 
-      required: true 
-    },
-    participantId: { 
-      type: String, 
-      required: false // Allow anonymous responses
-    },
-    bodyText: { 
-      type: String, 
+    questionId: {
+      type: Schema.Types.ObjectId,
+      ref: "DiscussionQuestion",
       required: true,
-      maxlength: 2000 // Reasonable limit
     },
-    createdAt: { 
-      type: Date, 
-      default: Date.now 
+    participantId: String,
+    bodyText: { type: String, required: true },
+    // Add moderation fields
+    isHidden: {
+      type: Boolean,
+      default: false
+    },
+    isFlagged: {
+      type: Boolean,
+      default: false
+    },
+    isPinned: {
+      type: Boolean,
+      default: false
+    },
+    moderatedAt: {
+      type: Date,
+      required: false
+    },
+    moderatedBy: {
+      type: String,
+      required: false
     }
   },
-  { 
-    timestamps: true // This will add createdAt and updatedAt automatically
-  }
+  { timestamps: true }
 );
 
 // Create indexes for better query performance
-DiscussionResponseSchema.index({ questionId: 1, createdAt: -1 });
+responseSchema.index({ questionId: 1, createdAt: -1 });
+responseSchema.index({ questionId: 1, isPinned: -1, createdAt: -1 }); // For pinned-first sorting
+responseSchema.index({ isFlagged: 1 }); // For finding flagged responses
 
-const DiscussionResponse = models.DiscussionResponse || model("DiscussionResponse", DiscussionResponseSchema);
-
-export default DiscussionResponse;
+export const DiscussionResponseModel = model<DiscussionResponse>(
+  "DiscussionResponse",
+  responseSchema
+);
