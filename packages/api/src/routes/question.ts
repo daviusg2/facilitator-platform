@@ -46,7 +46,7 @@ router.get("/:id/responses", async (req, res: Response) => {
 router.patch("/:id/activate", async (req, res: Response) => {
   try {
     const { id } = req.params;
-    const isActive = typeof req.body?.isActive === "boolean" ? req.body.isActive : true;
+    const isActive = req.body.isActive !== undefined ? req.body.isActive : true;
 
     console.log(`🔍 Toggling question ${id} to ${isActive ? 'active' : 'inactive'}`);
 
@@ -90,7 +90,7 @@ router.patch("/:id/activate", async (req, res: Response) => {
 
     console.log(`🔍 UPDATE OBJECT:`, updateObject);
 
-    // Use direct MongoDB collection update
+ // Use direct MongoDB collection update
     const updateResult = await DiscussionQuestion.collection.updateOne(
       { _id: new Types.ObjectId(id) },
       { $set: updateObject }
@@ -145,7 +145,8 @@ router.patch("/:id/activate", async (req, res: Response) => {
         io.to(sessionId).emit("question-timer-started", {
           questionId: id,
           expiresAt: updatedFromDB.timerExpiresAt.toISOString(),
-          durationMinutes: updatedFromDB.timerDurationMinutes + (updatedFromDB.timerExtendedMinutes || 0)
+          durationMinutes: updatedFromDB.timerDurationMinutes + (updatedFromDB.timerExtendedMinutes || 0),
+          startedAt: updatedFromDB.timerStartedAt.toISOString()
         });
       }
       

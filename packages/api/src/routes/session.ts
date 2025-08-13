@@ -130,25 +130,92 @@ router.get("/:id/questions", async (req, res) => {
  * Create a new question for a session
  */
 // Temporarily remove requireAuth for testing
-router.post("/:id/questions", async (req, res) => {
+/**
+ * POST /api/sessions/:id/questions
+ * body: { order: number, promptText: string, timerDurationMinutes?: number, notes?: string }
+ * Add a new question to a session with timer support
+ */
+router.post("/:id/questions", async (req, res: Response) => {
   try {
     const { id: sessionId } = req.params;
-    const { promptText, order } = req.body;
     
-    console.log("🔍 Creating question for session:", sessionId, "with data:", { promptText, order });
+    console.log(`🔍 QUESTION CREATION - Raw request body:`, req.body);
     
-    const question = await DiscussionQuestion.create({
-      sessionId,
+    const { order, promptText, timerDurationMinutes, notes } = req.body;
+
+    console.log(`🔍 QUESTION CREATION - Extracted fields:`, {
+      order,
       promptText,
-      order: order || 1,
-      isActive: false
+      timerDurationMinutes,
+      notes,
+      timerType: typeof timerDurationMinutes
     });
 
-    console.log("✅ Created question:", question);
-    res.status(201).json(question);
-  } catch (error) {
-    console.error("❌ Create question error:", error);
-    res.status(500).json({ error: "Internal" });
+    // Validate input
+    if (!promptText || typeof promptText !== 'string') {
+      return res.status(400).json({ error: "promptText is required" });
+    }
+
+    if (!order || typeof order !== 'number') {
+      return res.status(400).json({ error: "order is required and must be a number" });
+    }
+
+    // Create question data
+    const questionData: any = {
+      sessionId,
+      order,
+      promptText: promptText.trim(),
+      isActive: false,
+      timerExtendedMinutes: 0
+    };
+
+    // Add timer if provided
+    if (timerDurationMinutes !== undefined && timerDurationMinutes !== null && timerDurationMinutes > 0) {
+      console.log(`⏰ ADDING TIMER to question data: ${timerDurationMinutes} minutes`);
+      questionData.timerDurationMinutes = Number(timerDurationMinutes);
+    } else {
+      console.log(`ℹ️ No timer added - timerDurationMinutes:`, timerDurationMinutes);
+    }
+
+    // Add notes if provided
+    if (notes && notes.trim()) {
+      questionData.notes = notes.trim();
+    }
+
+    console.log(`📝 FINAL question data to save:`, questionData);
+
+    // Use direct MongoDB insertion to ensure fields are saved
+    const result = await DiscussionQuestion.collection.insertOne(questionData);
+    
+    console.log(`🔍 MongoDB insert result:`, {
+      insertedId: result.insertedId,
+      acknowledged: result.acknowledged
+    });
+
+    // Fetch the created document
+    const createdQuestion = await DiscussionQuestion.collection.findOne({
+      _id: result.insertedId
+    });
+
+    console.log(`✅ CREATED QUESTION from DB:`, {
+      _id: createdQuestion?._id,
+      timerDurationMinutes: createdQuestion?.timerDurationMinutes,
+      promptText: createdQuestion?.promptText,
+      order: createdQuestion?.order
+    });
+
+    // Also check via Mongoose
+    const viaMongoose = await DiscussionQuestion.findById(result.insertedId);
+    console.log(`✅ CREATED QUESTION via Mongoose:`, {
+      _id: viaMongoose?._id,
+      timerDurationMinutes: viaMongoose?.timerDurationMinutes,
+      promptText: viaMongoose?.promptText
+    });
+
+    res.status(201).json(createdQuestion);
+  } catch (err) {
+    console.error("❌ Create question error:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 

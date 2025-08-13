@@ -8,7 +8,7 @@ import App from "./App";
 import Layout from "./components/Layout";
 import DashboardPage from "./pages/DashboardPage";
 import SessionHostPage from "./pages/SessionHostPage";
-import JoinPage from "./pages/JoinPage";
+import ParticipantResponsePage from "./pages/ParticipantResponsePage";
 import AuthCallbackPage from "./pages/AuthCallbackPage";
 import { AuthProvider } from "./context/AuthContext";
 import ToastContainer from "./components/Toast";
@@ -36,7 +36,11 @@ const router = createBrowserRouter([
           { path: "session/:id", element: <SessionHostPage /> },
         ],
       },
-      { path: "join/:code", element: <JoinPage /> },
+      // Participant pages (no auth required, no layout)
+      { path: "join/:code", element: <ParticipantResponsePage /> },
+      { path: "participant/:code", element: <ParticipantResponsePage /> }, // Alternative route
+      
+      // Auth callback
       { path: "auth/callback", element: <AuthCallbackPage /> },
     ],
   },

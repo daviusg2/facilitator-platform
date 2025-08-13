@@ -17,13 +17,12 @@ export default function SessionHostPage() {
   const params = useParams();
   const { id } = useParams<{ id: string }>();
   
-  console.log("🔍 All URL params:", params);
-  console.log("🔍 id from useParams:", id);
-  console.log("🔍 Current URL:", window.location.pathname);
+  console.log("🔍 SessionHostPage mounted - URL params:", params);
+  console.log("🔍 sessionId:", id);
 
   const sessionId = id;
   const [questions, setQuestions] = useState<QuestionDTO[]>([]);
-  const [responses, setResponses] = useState<Record<string, ResponseDTO[]>>({}); // questionId -> responses[]
+  const [responses, setResponses] = useState<Record<string, ResponseDTO[]>>({}); 
   const [prompt, setPrompt] = useState("");
   const [initialLoad, setInitialLoad] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +33,46 @@ export default function SessionHostPage() {
   const [timerDuration, setTimerDuration] = useState<number | "">("");
   const [timerUnit, setTimerUnit] = useState<"minutes" | "hours">("minutes");
   const [questionNotes, setQuestionNotes] = useState("");
+
+  // Timer countdown states for live display
+  const [timerCountdowns, setTimerCountdowns] = useState<Record<string, number>>({});
+
+  // Debug timer form state changes
+  useEffect(() => {
+    console.log("🔍 Timer form state changed:", {
+      showTimerOptions,
+      timerDuration,
+      timerUnit,
+      questionNotes
+    });
+  }, [showTimerOptions, timerDuration, timerUnit, questionNotes]);
+
+  // Live timer countdown effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimerCountdowns(prev => {
+        const updated: Record<string, number> = {};
+        let hasChanges = false;
+
+        questions.forEach(question => {
+          if (question.timerExpiresAt && question.isActive) {
+            const now = new Date();
+            const expires = new Date(question.timerExpiresAt);
+            const remaining = Math.max(0, Math.ceil((expires.getTime() - now.getTime()) / 1000));
+            
+            if (prev[question._id] !== remaining) {
+              hasChanges = true;
+            }
+            updated[question._id] = remaining;
+          }
+        });
+
+        return hasChanges ? updated : prev;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [questions]);
 
   // Fetch responses for a specific question
   const fetchResponses = async (questionId: string) => {
@@ -59,6 +98,8 @@ export default function SessionHostPage() {
       return;
     }
 
+    console.log("🔌 Setting up socket connection for session:", sessionId);
+
     // Create socket connection
     const sock = io(import.meta.env.VITE_API_URL ?? "http://localhost:4000");
     sock.emit("join-session", sessionId);
@@ -78,17 +119,15 @@ export default function SessionHostPage() {
     // Listen for timer events
     sock.on("question-timer-started", (data: any) => {
       console.log("⏰ Timer started:", data);
-      // Update question in state with timer info
       setQuestions(prev => prev.map(q => 
         q._id === data.questionId 
-          ? { ...q, timerExpiresAt: data.expiresAt, timerDurationMinutes: data.durationMinutes }
+          ? { ...q, timerExpiresAt: data.expiresAt, timerStartedAt: data.startedAt }
           : q
       ));
     });
 
     sock.on("question-timer-extended", (data: any) => {
       console.log("⏰ Timer extended:", data);
-      // Update question in state with new expiration
       setQuestions(prev => prev.map(q => 
         q._id === data.questionId 
           ? { ...q, timerExpiresAt: data.newExpiresAt }
@@ -96,26 +135,24 @@ export default function SessionHostPage() {
       ));
     });
 
-    // Add connection event listeners for debugging
-    sock.on("connect", () => {
-      console.log("✅ Socket connected with ID:", sock.id);
-    });
-
-    sock.on("disconnect", () => {
-      console.log("❌ Socket disconnected");
-    });
-
-    sock.on("connect_error", (error) => {
-      console.error("❌ Socket connection error:", error);
-    });
-
     // Fetch initial questions
     listQuestions(sessionId)
       .then(async (data) => {
-        console.log("✅ Raw API response:", data);
-        console.log("✅ Response type:", typeof data);
-        console.log("✅ Is array:", Array.isArray(data));
-        console.log("📋 Questions loaded:", data);
+        console.log("✅ Questions loaded from API:", data);
+        
+        // Enhanced debugging for timer fields
+        if (data && Array.isArray(data)) {
+          data.forEach((q, index) => {
+            console.log(`🔍 Question ${index + 1}:`, {
+              id: q._id,
+              text: q.promptText.substring(0, 50) + "...",
+              timerDurationMinutes: q.timerDurationMinutes,
+              hasTimer: !!q.timerDurationMinutes,
+              isActive: q.isActive
+            });
+          });
+        }
+        
         setQuestions(data || []);
         
         // Fetch responses for each question
@@ -127,11 +164,9 @@ export default function SessionHostPage() {
       })
       .catch((err) => {
         console.error("❌ Failed to load questions:", err);
-        console.error("❌ Error details:", err.message);
         setError("Failed to load questions: " + err.message);
       })
       .finally(() => {
-        console.log("🏁 Setting initialLoad to false");
         setInitialLoad(false);
       });
 
@@ -143,40 +178,68 @@ export default function SessionHostPage() {
   }, [sessionId]);
 
   const handleAdd = async () => {
+    console.log("🔍 HANDLEADD called with state:", {
+      prompt: prompt.trim(),
+      sessionId,
+      showTimerOptions,
+      timerDuration,
+      timerUnit
+    });
+
     if (!prompt.trim() || !sessionId) {
-      console.log("⚠️ Cannot add question: missing prompt or sessionId", { prompt, sessionId });
+      console.log("⚠️ Cannot add question: missing prompt or sessionId");
       return;
     }
 
     try {
-      console.log("➕ Adding question:", prompt.trim());
+      console.log("➕ Starting to add question...");
       
       // Calculate timer duration in minutes
       let timerMinutes: number | undefined = undefined;
-      if (showTimerOptions && timerDuration) {
+      
+      console.log("🔍 Timer calculation debug:", {
+        showTimerOptions,
+        timerDuration,
+        timerDurationEmpty: timerDuration === "",
+        timerDurationType: typeof timerDuration,
+        timerUnit
+      });
+
+      if (showTimerOptions && timerDuration !== "" && timerDuration > 0) {
         timerMinutes = timerUnit === "hours" 
           ? Number(timerDuration) * 60 
           : Number(timerDuration);
+        
+        console.log("✅ Timer calculated:", {
+          originalDuration: timerDuration,
+          unit: timerUnit,
+          calculatedMinutes: timerMinutes
+        });
+      } else {
+        console.log("ℹ️ No timer will be added:", {
+          showTimerOptions,
+          timerDuration,
+          isEmpty: timerDuration === ""
+        });
       }
 
       const questionData = {
         order: questions.length + 1,
         promptText: prompt.trim(),
-        ...(timerMinutes && { timerDurationMinutes: timerMinutes }),
+        ...(timerMinutes && timerMinutes > 0 && { timerDurationMinutes: timerMinutes }),
         ...(questionNotes.trim() && { notes: questionNotes.trim() })
       };
 
-        console.log("🔍 FRONTEND DEBUG:");
-    console.log("  showTimerOptions:", showTimerOptions);
-    console.log("  timerDuration:", timerDuration);
-    console.log("  timerUnit:", timerUnit);
-    console.log("  calculated timerMinutes:", timerMinutes);
-    console.log("  final questionData:", questionData);
-
+      console.log("🔍 FINAL QUESTION DATA TO SEND:", questionData);
 
       const newQ = await addQuestion(sessionId, questionData);
 
-      console.log("✅ Question added:", newQ);
+      console.log("✅ Question created by API:", {
+        id: newQ._id,
+        timerDurationMinutes: newQ.timerDurationMinutes,
+        hasTimer: !!newQ.timerDurationMinutes
+      });
+
       setQuestions((prev) => [...prev, newQ]);
       
       // Reset form
@@ -198,16 +261,26 @@ export default function SessionHostPage() {
 
   const handleToggle = async (q: QuestionDTO) => {
     try {
-      console.log(`🔄 Toggling question ${q._id} to ${!q.isActive ? 'active' : 'inactive'}`);
+      console.log(`🔄 Toggling question ${q._id}:`, {
+        currentState: q.isActive,
+        newState: !q.isActive,
+        hasTimer: !!q.timerDurationMinutes,
+        timerDuration: q.timerDurationMinutes
+      });
       
       const upd = await toggleQuestion(q._id, { isActive: !q.isActive });
-      console.log("✅ Question toggled:", upd);
+      
+      console.log("✅ Question toggled, API response:", {
+        id: upd._id,
+        isActive: upd.isActive,
+        timerStartedAt: upd.timerStartedAt,
+        timerExpiresAt: upd.timerExpiresAt
+      });
       
       setQuestions((prev) => prev.map((x) => (x._id === upd._id ? upd : x)));
 
-      // Broadcast if question just went live
       if (upd.isActive && socket) {
-        console.log("📡 Broadcasting question activation:", upd);
+        console.log("📡 Broadcasting question activation");
         socket.emit("question-activated", sessionId, upd);
       }
     } catch (error) {
@@ -228,26 +301,30 @@ export default function SessionHostPage() {
     return `${duration}m`;
   };
 
+  const formatCountdown = (seconds: number) => {
+    if (seconds <= 0) return "Time's up!";
+    
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const getTimerStatus = (question: QuestionDTO) => {
     if (!question.timerExpiresAt || !question.isActive) return null;
     
-    const now = new Date();
-    const expires = new Date(question.timerExpiresAt);
-    const remaining = expires.getTime() - now.getTime();
+    const countdown = timerCountdowns[question._id];
+    if (countdown === undefined) return null;
     
-    if (remaining <= 0) return "Timer expired";
-    
-    const minutes = Math.ceil(remaining / (1000 * 60));
-    if (minutes >= 60) {
-      const hours = Math.floor(minutes / 60);
-      const mins = minutes % 60;
-      return mins > 0 ? `${hours}h ${mins}m remaining` : `${hours}h remaining`;
-    }
-    return `${minutes}m remaining`;
+    return countdown <= 0 ? "Timer expired" : formatCountdown(countdown);
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
+    <div className="max-w-4xl mx-auto p-6 space-y-6 font-sans">
       <h1 className="text-xl font-bold">Session Host - {sessionId}</h1>
 
       {error && (
@@ -269,7 +346,7 @@ export default function SessionHostPage() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            console.log("📝 Form submitted with prompt:", prompt);
+            console.log("📝 Form submitted!");
             handleAdd();
           }}
           className="space-y-4"
@@ -279,7 +356,10 @@ export default function SessionHostPage() {
               id="question-prompt"
               name="prompt"
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={(e) => {
+                console.log("📝 Prompt changed:", e.target.value);
+                setPrompt(e.target.value);
+              }}
               placeholder="Enter your question"
               className="border rounded w-full px-3 py-2"
             />
@@ -291,7 +371,10 @@ export default function SessionHostPage() {
               type="checkbox"
               id="enable-timer"
               checked={showTimerOptions}
-              onChange={(e) => setShowTimerOptions(e.target.checked)}
+              onChange={(e) => {
+                console.log("⏰ Timer checkbox toggled:", e.target.checked);
+                setShowTimerOptions(e.target.checked);
+              }}
               className="rounded"
             />
             <label htmlFor="enable-timer" className="text-sm font-medium">
@@ -301,7 +384,8 @@ export default function SessionHostPage() {
 
           {/* Timer Configuration */}
           {showTimerOptions && (
-            <div className="bg-gray-50 p-3 rounded border space-y-3">
+            <div className="bg-yellow-50 p-4 rounded border-2 border-yellow-200 space-y-3">
+              <div className="text-sm font-semibold text-yellow-800">⏰ Timer Configuration</div>
               <div className="flex items-center space-x-2">
                 <label className="text-sm font-medium">Duration:</label>
                 <input
@@ -309,21 +393,29 @@ export default function SessionHostPage() {
                   min="1"
                   max={timerUnit === "hours" ? "8" : "480"}
                   value={timerDuration}
-                  onChange={(e) => setTimerDuration(e.target.value ? Number(e.target.value) : "")}
+                  onChange={(e) => {
+                    const value = e.target.value ? Number(e.target.value) : "";
+                    console.log("⏰ Timer duration changed:", value, typeof value);
+                    setTimerDuration(value);
+                  }}
                   className="border rounded px-2 py-1 w-20 text-center"
                   placeholder="10"
                 />
                 <select
                   value={timerUnit}
-                  onChange={(e) => setTimerUnit(e.target.value as "minutes" | "hours")}
+                  onChange={(e) => {
+                    const unit = e.target.value as "minutes" | "hours";
+                    console.log("⏰ Timer unit changed:", unit);
+                    setTimerUnit(unit);
+                  }}
                   className="border rounded px-2 py-1"
                 >
                   <option value="minutes">Minutes</option>
                   <option value="hours">Hours</option>
                 </select>
               </div>
-              <p className="text-xs text-gray-600">
-                Timer will start when question is activated. Participants can still respond after timer expires.
+              <p className="text-xs text-yellow-700">
+                Timer will start when question is activated. Current: {timerDuration} {timerUnit}
               </p>
             </div>
           )}
@@ -351,15 +443,23 @@ export default function SessionHostPage() {
         </form>
       </div>
 
-      {/* Debug Info */}
-      <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-        <p>Session ID: {sessionId}</p>
-        <p>Questions loaded: {questions.length}</p>
-        <p>Socket connected: {socket?.connected ? '✅' : '❌'}</p>
-        <p>Current prompt: "{prompt}"</p>
-        <p>URL: {window.location.pathname}</p>
-        <p>Initial Load: {initialLoad ? '⏳' : '✅'}</p>
-        <p>Total responses: {Object.values(responses).flat().length}</p>
+      {/* Enhanced Debug Info */}
+      <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded border">
+        <div className="font-semibold mb-2">Debug Information:</div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p><strong>Session:</strong> {sessionId}</p>
+            <p><strong>Questions:</strong> {questions.length}</p>
+            <p><strong>Socket:</strong> {socket?.connected ? '✅ Connected' : '❌ Disconnected'}</p>
+            <p><strong>Loading:</strong> {initialLoad ? '⏳ Yes' : '✅ No'}</p>
+          </div>
+          <div>
+            <p><strong>Current prompt:</strong> "{prompt}"</p>
+            <p><strong>Timer enabled:</strong> {showTimerOptions ? '✅ Yes' : '❌ No'}</p>
+            <p><strong>Timer duration:</strong> {timerDuration} {timerUnit}</p>
+            <p><strong>Notes:</strong> "{questionNotes}"</p>
+          </div>
+        </div>
       </div>
 
       {/* Questions and Responses */}
@@ -373,90 +473,78 @@ export default function SessionHostPage() {
             </div>
           ) : (
             questions.map((q) => (
-              <div key={q._id} className="border rounded-lg p-4 space-y-4">
-                {/* Question Header */}
+              <div key={q._id} className="border rounded-lg p-4 space-y-3">
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
-                    <h3 className="font-medium text-lg">
-                      <span className="text-gray-500 mr-2">{q.order}.</span>
-                      {q.promptText}
+                    <h3 className="font-semibold">
+                      Question {q.order}: {q.promptText}
                     </h3>
                     
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className={`text-xs px-2 py-1 rounded ${
-                        q.isActive 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {q.isActive ? 'LIVE' : 'DRAFT'}
-                      </span>
-                      
-                      <span className="text-xs text-gray-500">
-                        {responses[q._id]?.length || 0} responses
-                      </span>
-
-                      {/* Timer Info */}
-                      {q.timerDurationMinutes && (
-                        <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800">
-                          ⏰ {formatTimerDisplay(q)}
-                        </span>
-                      )}
-
-                      {/* Active Timer Status */}
-                      {q.isActive && q.timerExpiresAt && (
-                        <span className={`text-xs px-2 py-1 rounded ${
-                          getTimerStatus(q)?.includes('expired') 
-                            ? 'bg-red-100 text-red-800' 
-                            : 'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {getTimerStatus(q)}
-                        </span>
-                      )}
-
-                      {/* Duplicate indicator */}
-                      {q.originalQuestionId && (
-                        <span className="text-xs px-2 py-1 rounded bg-purple-100 text-purple-800">
-                          📋 Duplicate
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Notes */}
+                    {/* Enhanced Timer Display */}
+                    {q.timerDurationMinutes ? (
+                      <div className="mt-2 p-2 bg-blue-50 rounded border">
+                        <div className="text-sm text-blue-800">
+                          ⏰ <strong>Timer:</strong> {formatTimerDisplay(q)}
+                          {q.isActive && q.timerExpiresAt && (
+                            <span className={`ml-2 font-bold ${
+                              (timerCountdowns[q._id] || 0) <= 0 
+                                ? 'text-red-600' 
+                                : (timerCountdowns[q._id] || 0) <= 60 
+                                  ? 'text-orange-600' 
+                                  : 'text-green-600'
+                            }`}>
+                              ({getTimerStatus(q)})
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-blue-600 mt-1">
+                          Started: {q.timerStartedAt || 'Not started'} | 
+                          Expires: {q.timerExpiresAt || 'Not set'}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-500 mt-1">No timer set</div>
+                    )}
+                    
                     {q.notes && (
-                      <p className="text-sm text-gray-600 mt-1 italic">
-                        📝 {q.notes}
-                      </p>
+                      <p className="text-sm text-gray-600 mt-1 italic">📝 {q.notes}</p>
                     )}
                   </div>
                   
                   <button
                     onClick={() => handleToggle(q)}
-                    className={
+                    className={`px-3 py-1 rounded text-sm font-medium ${
                       q.isActive
-                        ? "px-4 py-2 text-white bg-red-600 rounded hover:bg-red-700"
-                        : "px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                    }
+                        ? "bg-red-600 text-white hover:bg-red-700"
+                        : "bg-green-600 text-white hover:bg-green-700"
+                    }`}
                   >
-                    {q.isActive ? "Stop" : "Go Live"}
+                    {q.isActive ? "Deactivate" : "Activate"}
                   </button>
                 </div>
 
                 {/* Responses */}
-                <div className="space-y-2">
-                  <h4 className="font-medium text-sm text-gray-700">Responses:</h4>
-                  {responses[q._id] && responses[q._id].length > 0 ? (
-                    <div className="space-y-2 max-h-60 overflow-y-auto">
-                      {responses[q._id].map((response, index) => (
-                        <div key={response._id} className="bg-gray-50 p-3 rounded border-l-4 border-blue-500">
-                          <p className="text-sm">{response.bodyText}</p>
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">
+                    Responses ({(responses[q._id] || []).length}):
+                  </h4>
+                  {(responses[q._id] || []).length === 0 ? (
+                    <p className="text-sm text-gray-500 italic">No responses yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {(responses[q._id] || []).map((resp) => (
+                        <div
+                          key={resp._id}
+                          className="bg-gray-50 rounded p-3 text-sm border"
+                        >
+                          <p className="text-gray-800">{resp.bodyText}</p>
                           <p className="text-xs text-gray-500 mt-1">
-                            Response #{index + 1} • {new Date(response.createdAt).toLocaleTimeString()}
+                            {new Date(resp.createdAt).toLocaleString()}
+                            {resp.participantId && ` • Participant: ${resp.participantId}`}
                           </p>
                         </div>
                       ))}
                     </div>
-                  ) : (
-                    <p className="text-sm text-gray-500 italic">No responses yet.</p>
                   )}
                 </div>
               </div>
